@@ -1,0 +1,4 @@
+.zig-cache
+zig-out
+frontend/mix-vm.wasm
+
