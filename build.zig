@@ -49,7 +49,9 @@ pub fn build(b: *std.Build) void {
 
     // Command to copy WASM to frontend
     const copy_step = b.step("copy-wasm", "Copy WASM to frontend");
-    const copy_cmd = b.addSystemCommand(&.{ "cp", "zig-out/bin/mix-vm.wasm", "frontend/mix-vm.wasm" });
+    const copy_cmd = b.addInstallFileWithDir(b.path("zig-out/bin/mix-vm.wasm"), .{
+        .custom = "../frontend",
+    }, "mix-vm.wasm");
     copy_cmd.step.dependOn(&wasm_install.step);
     copy_step.dependOn(&copy_cmd.step);
 
