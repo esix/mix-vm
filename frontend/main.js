@@ -1,84 +1,93 @@
+
 // frontend/main.js
 
-// Create the memory object that will be used by WASM.
-// Size is specified in WASM pages (1 page = 65536 bytes).
-// In build.zig, you specified max_memory as std.wasm.page_size * number_of_pages (2 pages).
-// 'maximum' in JS must correspond to this value.
-const wasmMemory = new WebAssembly.Memory({
-  initial: 2, // Initial size in pages (should be >= initial_memory in build.zig)
-  maximum: 2, // Maximum size in pages (should be >= max_memory in build.zig)
-  // and correspond to the value specified in build.zig in bytes, divided by 65536
-});
-
-// Function to load and instantiate WASM
 async function loadWasm() {
-  // Fetch the WASM bytecode
   const wasmBytes = await fetch("mix-vm.wasm").then((response) =>
-    response.arrayBuffer(),
+      response.arrayBuffer(),
   );
 
-  // Prepare the imports object.
   const imports = {
     env: {
-      memory: wasmMemory,
-      // Add a simple abort stub, in case Zig generates it as an import
-      // and code inside WASM calls panic.
       abort: () => {
         throw new Error(
-          "Abort called from WASM (likely from a panic). Check console for Zig panic message.",
+            "Abort called from WASM (likely from a panic). Check console for Zig panic message.",
         );
       },
     },
   };
 
   try {
-    // Instantiate WASM, passing the imports
     const wasmModule = await WebAssembly.instantiate(wasmBytes, imports);
 
     console.log(
-      "WASM loaded and instantiated with imported memory:",
-      wasmModule.instance.exports,
+        "WASM loaded and instantiated (exported memory):",
+        wasmModule.instance.exports,
     );
 
     const exports = wasmModule.instance.exports;
+    console.assert(exports.vm_init, "No exports.vm_init");
+    console.assert(exports.vm_get_state, "No exports.vm_get_state");
 
-    // Check if the required functions exist
-    if (exports.vm_init) {
-      // Initialize the VM
-      exports.vm_init();
-      console.log("VM initialized.");
+    // Initialize the VM
+    exports.vm_init();
+    console.log("VM initialized.");
+    console.log("Current VM state:", exports.vm_get_state());
 
-      // Example of calling other functions
-      if (exports.vm_get_state) {
-        console.log("Current VM state:", exports.vm_get_state());
-      }
+    if (
+        exports.vm_get_full_memory_view &&
+        exports.vm_get_memory_required_size
+    ) {
+      // 1. We need to get the exported WASM memory
+      // const wasmMemory = exports.memory; // WASM exports memory
+      // // 2. Create a DataView or Uint8Array on top of the exported memory
+      // const wasmMemoryView = new Uint8Array(wasmMemory.buffer);
+      // // 3. Create a JS buffer of the required size
+      // const jsMemoryBuffer = new Uint8Array(requiredSize);
+      // 4. Call the Zig function, passing it the offset in the exported memory,
+      //    where our JS buffer is located (after we "placed" it there).
+      //    BUT! We cannot simply pass a JS Uint8Array to Zig.
+      //    We need to place the buffer *inside* WASM memory, so that Zig can get a pointer to it.
+      //    This is done by allocating space in WASM memory and copying the data into it from JS,
+      //    or by using special mechanisms (e.g., WASI, although this is not directly suitable for freestanding).
+      //    The simplest way is to use a `toWasm` buffer, but this is not a standard JS API.
+      //    Instead, Zig should copy *into* the offset passed to it in *its* memory.
 
-      // Check access to memory via the exported pointer
-      if (exports.vm_memory_ptr && exports.vm_memory_size_bytes) {
-        const ptr = exports.vm_memory_ptr(); // Get the byte offset
-        const size = exports.vm_memory_size_bytes(); // Get the memory size in bytes
-        console.log(`WASM memory pointer offset: ${ptr}, size: ${size} bytes`);
+      // Get WASM exported memory
+      const wasmMemory = exports.memory; // This is WebAssembly.Memory
+      const wasmMemoryBuffer = wasmMemory.buffer; // This is ArrayBuffer
+      const wasmMemoryView = new Uint8Array(wasmMemoryBuffer); // This is Uint8Array over WASM memory
 
-        // Create a view of the WASM memory as a Uint8Array
-        const memoryView = new Uint8Array(wasmMemory.buffer);
+      // Get the required size
+      const requiredSize = exports.vm_get_memory_required_size();
 
-        // Now you can read/write directly to memoryView
-        // or use the exported functions to interact with the VM
-        // and debug its state.
-        document.getElementById("output").innerHTML =
-          `<p>WASM loaded. Memory accessible. Ptr offset: ${ptr}, Size: ${size}. Max WASM memory pages: ${wasmMemory.grow(0)}</p>`;
-      } else {
-        document.getElementById("output").innerHTML =
-          "<p>WASM loaded, but memory access functions not found.</p>";
-      }
+      // Reserve space in WASM memory for the result.
+      // This could be static space or dynamically allocated (if there is an allocator).
+      // For simplicity, let's assume we know that there is enough memory and use the beginning
+      // (in practice, you need to consider global variables and the stack).
+      // Let's assume we will copy the result to the beginning of WASM memory.
+      // This is NOT safe in reality, but works as a demonstration.
+      const destination_offset = 0; // DO NOT USE 0 IN PRACTICE!
+
+      // Call Zig to copy the VM memory into WASM memory at the specified offset
+      exports.vm_get_full_memory_view(destination_offset, requiredSize);
+
+      // Now copy from WASM memory to JS Uint8Array
+      const jsMemoryBuffer = wasmMemoryView.subarray(
+          destination_offset,
+          destination_offset + requiredSize,
+      );
+
+      console.log("Copied VM memory to JS buffer:", jsMemoryBuffer);
+      document.getElementById("output").innerHTML =
+          `<p>WASM loaded. VM memory copied to JS buffer (${jsMemoryBuffer.length} bytes).</p>`;
     } else {
       document.getElementById("output").innerHTML =
-        "<p>WASM loaded, but VM initialization function 'vm_init' not found.</p>";
+          "<p>WASM loaded, but vm_get_full_memory_view or vm_get_memory_required_size not found.</p>";
     }
   } catch (error) {
     console.error("Error instantiating WASM:", error);
     document.getElementById("output").innerHTML =
-      `<p>Error loading WASM: ${error.message}</p>`;
+        `<p>Error loading WASM: ${error.message}</p>`;
   }
 }
 

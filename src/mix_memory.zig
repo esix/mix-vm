@@ -1,7 +1,7 @@
 const std = @import("std");
 
 // Constant for memory size, declared outside the struct
-const MEMORY_SIZE = 4000;
+pub const MEMORY_SIZE = 4000;
 
 // MixByte will be represented as u8 in WASM memory, but with a check that the top 2 bits are 0
 pub const MixByteValue = u8;

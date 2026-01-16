@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
     wasm.global_base = 6560;
     wasm.entry = .disabled;
     wasm.rdynamic = true;
-    wasm.import_memory = true;  // ENABLED IMPORT MEMORY AGAIN
+    wasm.import_memory = false;  // disabled memory import
     wasm.stack_size = std.wasm.page_size;
 
     const number_of_pages = 2;
