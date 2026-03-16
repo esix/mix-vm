@@ -1,0 +1,33 @@
+* Greatest Common Divisor — Knuth Vol.1, Algorithm E (Euclid's algorithm)
+* Computes GCD of values at addresses M and N, stores result at GCD
+*
+* rI1 = u, rI2 = v (or rA/rX)
+M       EQU     1000        * address of first number
+N       EQU     1001        * address of second number
+R       EQU     1002        * address for result
+        ORIG    M
+        CON     252         * first number
+        CON     105         * second number
+        CON     0           * result placeholder
+        ORIG    3000
+START   ENTA    0
+        LDA     M           * rA = u
+        LDX     N           * rX = v
+E1      CMPX    =0=         * v = 0?
+        JE      DONE
+E2      STX     T           * t = v
+        DIV     N           * rA = u/v, rX = u mod v
+        CMPA    =0=
+        JE      E3
+        LDX     T           * rX = t (= old v)
+        STX     N
+        LDA     T
+        JMP     E1
+E3      LDX     T
+        STX     N
+        LDA     T
+        JMP     E1
+DONE    STX     R           * result in rX
+        HLT
+T       CON     0           * temp
+        END     START

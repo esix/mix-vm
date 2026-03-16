@@ -20,15 +20,11 @@ pub const MixWordLayout = extern struct { // extern struct ensures C ABI layout,
 
     // Sets the word value from an integer (for initialization/loading)
     // Checks that byte values fit into 6 bits (0-63).
-    pub fn setValueFromInt(self: *MixWordLayout, value: i32) !void {
-        const abs_val = @abs(value);
+    pub fn setValueFromInt(self: *MixWordLayout, value: i32) void {
         self.sign = if (value < 0) 1 else 0;
-
-        var temp = abs_val;
+        var temp: u32 = @intCast(@abs(value));
         for (0..5) |i| {
-            // Use @as to cast the result of temp & 0x3F to u8 type
-            const byte_val = @as(u8, @truncate(temp & 0x3F)); // Take lower 6 bits and cast to u8
-            self.bytes[4 - i] = byte_val;
+            self.bytes[4 - i] = @truncate(temp & 0x3F);
             temp >>= 6;
         }
     }

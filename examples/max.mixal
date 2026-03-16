@@ -1,0 +1,28 @@
+* Find maximum in array — simple loop
+* Array of 10 numbers at address 100, result at address 110
+N       EQU     10          * array length
+ARR     EQU     100         * array base
+RESULT  EQU     110         * result address
+        ORIG    ARR
+        CON     14
+        CON     3
+        CON     99
+        CON     27
+        CON     51
+        CON     8
+        CON     72
+        CON     45
+        CON     6
+        CON     31
+        ORIG    3000
+START   LDA     ARR         * rA = arr[0] (initial max)
+        ENT1    1           * i = 1
+LOOP    CMPA    ARR,1       * max vs arr[i]
+        JGE     NEXT        * if max >= arr[i], skip
+        LDA     ARR,1       * max = arr[i]
+NEXT    INC1    1           * i++
+        CMP1    =N=         * i < N?
+        JL      LOOP
+        STA     RESULT      * store max
+        HLT
+        END     START

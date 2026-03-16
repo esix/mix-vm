@@ -1,0 +1,38 @@
+* Print primes up to 500 — from GNU MDK samples
+* Algorithm: sieve-like, tests each odd number for divisibility
+L       EQU     500         * upper bound
+BUF0    EQU     2000        * output buffer base
+BUF1    EQU     BUF0+25
+PRIME   EQU     -1          * sentinel value
+TERM    EQU     19          * output device (terminal)
+        ORIG    3000
+START   ENTA    1
+        STA     J+3(4:4)    * adjust jump table
+        ENT1    BUF1+1
+        JBUS    *(TERM)
+        ENTA    2
+        STA     PRIME+1
+2H      ENTA    3           * candidate prime
+        STA     PRIME
+        INC1    -1
+        J1Z     DONE        * buffer full?
+4H      INC2    2           * next candidate: candidate += 2
+        JMP     ISPRIME
+        JMP     4B          * not prime, try next
+        STA     PRIME,1     * store prime
+        JMP     2B
+ISPRIME ENT3    1
+3H      INC3    1           * check divisibility
+        LD2     PRIME,3
+        J2Z     ISPRIME2    * divisor = 0 → prime
+        CMPX    PRIME,3
+        JGE     *+2
+        JMP     3B          * X < prime[3], still possible
+ISPRIME2 ENT2  0
+        JMP     *+1
+        STJ     *+1
+DONE    OUT     BUF1(TERM)
+        JBUS    *(TERM)
+        HLT
+PRIME   ORIG    PRIME+499
+        END     START

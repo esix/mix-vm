@@ -1,0 +1,10 @@
+* Hello, World for MIX
+* Prints "HELLO" using OUT instruction (device 19 = paper tape punch / stdout in MDK)
+TERM    EQU     19          * terminal device number
+        ORIG    3000
+START   OUT     MSG(TERM)   * print message
+        HLT
+MSG     ALF     "HELLO"
+        ALF     " WORL"
+        ALF     "D    "
+        END     START

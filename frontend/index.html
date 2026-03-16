@@ -6,6 +6,7 @@
   <title>MIX VM Debugger</title>
   <link rel="stylesheet" href="style.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+  <script src="assembler.js"></script>
 </head>
 <body>
   <div id="app" x-data="vm" class="app">
@@ -16,8 +17,6 @@
     </header>
 
     <div class="toolbar">
-      <button @click="load()" :disabled="loading" class="btn btn-primary">Load WASM</button>
-      <div class="sep"></div>
       <button @click="stepBack()" :disabled="!loaded || history.length === 0" class="btn" title="Step backward (undo)">&#8592; Back</button>
       <button @click="step()"     :disabled="!loaded || running"             class="btn btn-accent" title="Step forward">Step &#8594;</button>
       <button @click="toggleRun()" :disabled="!loaded" class="btn" :class="running ? 'btn-stop' : 'btn-run'">
@@ -26,39 +25,48 @@
       <div class="sep"></div>
       <button @click="reset()" :disabled="!loaded" class="btn btn-danger">Reset</button>
       <div class="sep"></div>
+      <button @click="$refs.mixFile.click()" :disabled="!loaded" class="btn btn-load" title="Load a compiled .mix file into VM memory">
+        &#128194; Load .mix
+      </button>
+      <input type="file" x-ref="mixFile" accept=".mix" @change="loadMixFile($event)" style="display:none" />
+      <div class="sep"></div>
       <label class="speed-label">
         Speed:
         <input type="range" min="1" max="200" x-model.number="runSpeed" @change="applySpeed()" class="speed-slider" />
         <span x-text="runSpeed + ' Hz'"></span>
       </label>
+      <div class="sep"></div>
+      <button @click="view = 'debug'"  class="btn btn-small" :class="view === 'debug'  ? 'btn-accent' : ''">Debugger</button>
+      <button @click="view = 'asm'"    class="btn btn-small" :class="view === 'asm'    ? 'btn-accent' : ''">Assembler</button>
     </div>
 
-    <div class="main" x-show="loaded">
+    <div class="main" x-show="loaded && view === 'debug'">
 
       <aside class="sidebar">
         <section class="panel">
           <h2>VM State</h2>
           <table class="info-table">
-            <tr><td>PC</td>    <td class="val mono" x-text="String(pc).padStart(4,'0')"></td></tr>
-            <tr><td>Cycle</td> <td class="val mono" x-text="cycle"></td></tr>
+            <tr><td>PC</td>     <td class="val mono" x-text="fmtAddr(pc)"></td></tr>
+            <tr><td>Cycle</td>  <td class="val mono" x-text="cycle"></td></tr>
+            <tr><td>Halted</td> <td class="val mono" :class="halted ? 'bad' : ''" x-text="halted ? 'YES' : 'no'"></td></tr>
             <tr><td>History</td><td class="val mono" x-text="history.length + ' / ' + MAX_HISTORY"></td></tr>
           </table>
         </section>
 
         <section class="panel">
-          <h2>Registers <span class="todo">(todo)</span></h2>
-          <table class="info-table stub">
-            <tr><td>rA</td>  <td class="mono">+ 00 00 00 00 00</td></tr>
-            <tr><td>rX</td>  <td class="mono">+ 00 00 00 00 00</td></tr>
-            <tr><td>rI1</td> <td class="mono">+ 00 00</td></tr>
-            <tr><td>rI2</td> <td class="mono">+ 00 00</td></tr>
-            <tr><td>rI3</td> <td class="mono">+ 00 00</td></tr>
-            <tr><td>rI4</td> <td class="mono">+ 00 00</td></tr>
-            <tr><td>rI5</td> <td class="mono">+ 00 00</td></tr>
-            <tr><td>rI6</td> <td class="mono">+ 00 00</td></tr>
-            <tr><td>rJ</td>  <td class="mono">0000</td></tr>
-            <tr><td>OV</td>  <td class="mono">0</td></tr>
-            <tr><td>CMP</td> <td class="mono">E</td></tr>
+          <h2>Registers</h2>
+          <table class="info-table">
+            <tr><td>rA</td>  <td class="val mono" x-text="fmtWord(regA)"></td></tr>
+            <tr><td>rX</td>  <td class="val mono" x-text="fmtWord(regX)"></td></tr>
+            <template x-for="(v, i) in regI" :key="i">
+              <tr>
+                <td class="mono" x-text="'rI' + (i + 1)"></td>
+                <td class="val mono" x-text="fmtIndex(v)"></td>
+              </tr>
+            </template>
+            <tr><td>rJ</td>  <td class="val mono" x-text="fmtAddr(regJ)"></td></tr>
+            <tr><td>OV</td>  <td class="val mono" :class="overflow ? 'bad' : ''" x-text="overflow ? '1' : '0'"></td></tr>
+            <tr><td>CMP</td> <td class="val mono" x-text="cmpLabel(cmp)"></td></tr>
           </table>
         </section>
       </aside>
@@ -112,9 +120,38 @@
 
     </div>
 
+    <!-- ── Assembler view ──────────────────────────────────────────────── -->
+    <div class="asm-panel" x-show="loaded && view === 'asm'">
+      <div class="asm-toolbar">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button @click="asmAssemble()" class="btn btn-run">&#9654; Assemble &amp; Load</button>
+          <select class="btn" @change="asmLoadExample($event)">
+            <option value="">Load example…</option>
+            <option value="gcd">GCD (Euclid)</option>
+            <option value="max">Find Maximum</option>
+          </select>
+        </div>
+        <span class="page-info" x-text="asmStatusText"></span>
+      </div>
+      <div class="asm-body">
+        <textarea
+          class="asm-src"
+          x-model="asmSource"
+          placeholder="Write MIXAL assembly here…"
+          spellcheck="false"
+        ></textarea>
+        <div class="asm-output" x-show="asmErrors.length > 0 || asmOutput">
+          <template x-for="err in asmErrors" :key="err">
+            <div class="asm-err" x-text="err"></div>
+          </template>
+          <div class="asm-ok" x-show="asmErrors.length === 0 && asmOutput" x-text="asmOutput"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="welcome" x-show="!loaded">
       <div x-show="!error">
-        Click <strong>Load WASM</strong> to start the debugger.
+        <span x-text="loading ? 'Loading…' : 'Initializing…'"></span>
       </div>
       <div class="err" x-show="error" x-text="'Error: ' + error"></div>
     </div>

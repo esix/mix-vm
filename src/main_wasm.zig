@@ -1,112 +1,84 @@
-// src/main_wasm.zig
-const MixMemory = @import("mix_memory.zig");
-const Memory = MixMemory.Memory;
-const MixWordLayout = MixMemory.MixWordLayout;
-const MEMORY_SIZE = MixMemory.MEMORY_SIZE; // Import the constant
+const MixCpu        = @import("mix_cpu.zig");
+const MixVm         = @import("mix_vm.zig");
+const Vm            = MixVm.Vm;
+const MixWordLayout = MixVm.MixWordLayout;
+const MEMORY_SIZE   = MixVm.MEMORY_SIZE;
 
 const BYTES_PER_WORD = 6;
 
-var vm_memory: Memory = undefined;
-var vm_state: i32 = 0;
-var vm_pc: u32 = 0;
+var vm: Vm = undefined;
 
-// Function to initialize the VM, called from JS on load
-export fn vm_init() void {
-    vm_memory = Memory{}; // Create the structure
-    vm_memory.init();     // Initialize its data
-    vm_state = 0; // Reset the state
-}
+// ── Lifecycle ──────────────────────────────────────────────────────────────
+
+export fn vm_init()  void { vm.init(); }
+export fn vm_reset() void { vm.init(); }
 
 export fn vm_step() void {
-    vm_state += 1; // Simple step logic
-    // Here will be the logic to execute a single instruction
-    // and modify the vm_memory
-    // THEN THERE WILL BE LOGIC TO SAVE A SNAPSHOT
+    MixCpu.step(&vm);
 }
 
-export fn vm_get_state() i32 {
-    return vm_state;
+// ── VM state: read ─────────────────────────────────────────────────────────
+
+export fn vm_get_pc()       u32 { return vm.pc; }
+export fn vm_get_cycle()    u32 { return vm.cycle; }
+export fn vm_get_halted()   u32 { return if (vm.halted)   1 else 0; }
+export fn vm_get_overflow() u32 { return if (vm.overflow) 1 else 0; }
+export fn vm_get_cmp()      u32 { return @intFromEnum(vm.cmp); }
+
+// ── VM state: write (used by step-back restore) ────────────────────────────
+
+export fn vm_set_pc(val: u32)       void { vm.pc    = @min(val, MEMORY_SIZE - 1); }
+export fn vm_set_cycle(val: u32)    void { vm.cycle = val; }
+export fn vm_set_halted(val: u32)   void { vm.halted   = val != 0; }
+export fn vm_set_overflow(val: u32) void { vm.overflow = val != 0; }
+export fn vm_set_cmp(val: u32)      void { vm.cmp = @enumFromInt(@min(val, 2)); }
+
+// ── Registers: read ────────────────────────────────────────────────────────
+
+export fn vm_get_reg_a() i32 { return vm.rA.getValueAsInt(); }
+export fn vm_get_reg_x() i32 { return vm.rX.getValueAsInt(); }
+export fn vm_get_reg_j() u32 { return vm.rJ; }
+
+/// idx: 1–6
+export fn vm_get_reg_i(idx: u32) i32 {
+    if (idx < 1 or idx > 6) return 0;
+    return vm.rI[idx - 1].toInt();
 }
 
-export fn vm_reset() void {
-    vm_memory.init();
-    vm_state = 0;
-    vm_pc = 0;
+// ── Registers: write ───────────────────────────────────────────────────────
+
+export fn vm_set_reg_a(val: i32) void { vm.rA.setValueFromInt(val); }
+export fn vm_set_reg_x(val: i32) void { vm.rX.setValueFromInt(val); }
+export fn vm_set_reg_j(val: u32) void { vm.rJ = @min(val, MEMORY_SIZE - 1); }
+
+/// idx: 1–6
+export fn vm_set_reg_i(idx: u32, val: i32) void {
+    if (idx < 1 or idx > 6) return;
+    vm.rI[idx - 1].fromInt(val);
 }
 
-export fn vm_get_pc() u32 {
-    return vm_pc;
-}
+// ── Memory ─────────────────────────────────────────────────────────────────
 
-// Function to read a word from memory from JS
-// Use u32 for address, as WASM does not support u12
+export fn vm_get_memory_required_size() u32 { return MEMORY_SIZE * BYTES_PER_WORD; }
+export fn vm_get_memory_ptr()        [*]u8 { return vm.memory.getMemoryPtr(); }
+
 export fn vm_read_word(address: u32) i32 {
-    // Check boundaries in JS or in the readWord function itself
-    const word = vm_memory.readWord(address);
-    // Return the value as i32.
-    return word.getValueAsInt();
+    return vm.memory.readWord(address).getValueAsInt();
 }
 
-// Function to write a word to memory from JS
-// Use u32 for address, as WASM does not support u12
 export fn vm_write_word(address: u32, value: i32) void {
-    // Check boundaries in JS or in the writeWord function itself
-    var word: MixWordLayout = .{ .bytes = [_]u8{0} ** 5, .sign = 0 };
-    word.setValueFromInt(value) catch {
-        @panic("Failed to set word value from int");
-    };
-    vm_memory.writeWord(address, word);
+    var word: MixWordLayout = .{ .bytes = .{ 0, 0, 0, 0, 0 }, .sign = 0 };
+    word.setValueFromInt(value);
+    vm.memory.writeWord(address, word);
 }
 
-// Export the size of the required memory (for JS, to know the buffer size)
-export fn vm_get_memory_required_size() u32 {
-    return MEMORY_SIZE * BYTES_PER_WORD;
-}
-
-// Export a direct pointer to the VM memory data — JS can create a live Uint8Array
-// view over WASM memory using this pointer, with no copying needed.
-export fn vm_get_memory_ptr() [*]u8 {
-    return vm_memory.getMemoryPtr();
-}
-
-// Export a function to get the current state of the VM memory
-// buffer_ptr: pointer to the beginning of the Uint8Array buffer in WASM memory, provided from JS
-// buffer_size: size of the buffer in bytes
-export fn vm_get_full_memory_view(buffer_ptr: [*]u8, buffer_size: u32) void {
-    const required_size = MEMORY_SIZE * BYTES_PER_WORD; // Use the constant
-
-    // Check if the buffer is large enough
-    if (buffer_size < required_size) {
-        @panic("Buffer provided to vm_get_full_memory_view is too small");
-    }
-
-    // Get a slice of our internal VM memory
-    const vm_memory_slice = vm_memory.getMemorySlice(); // This is [24000]u8
-
-    // Copy the data from the internal VM memory to the provided buffer
-    @memcpy(buffer_ptr[0..required_size], vm_memory_slice);
-}
-
-// --- Additionally: Functions for debugging ---
-
-// Function to read a specific byte from a word
-// Use u32 for address and byte_index, as WASM does not support u12, u3
 export fn vm_read_byte(address: u32, byte_index: u32) u8 {
-    // Check boundaries in JS or in the readByte function itself
-    const byte_val = vm_memory.readByte(address, byte_index);
-    return byte_val; // MixByteValue (u8) is returned as u8
+    return vm.memory.readByte(address, byte_index);
 }
 
-// Function to write a specific byte to a word
-// Use u32 for address and byte_index, as WASM does not support u12, u3
 export fn vm_write_byte(address: u32, byte_index: u32, byte_val: u8) void {
-    // Check that byte_val fits in 6 bits
-    if (byte_val > 63) {
-        @panic("Value too large for MixByte (must be 0-63)");
-    }
-    // Check boundaries in JS or in the writeByte function itself
-    vm_memory.writeByte(address, byte_index, byte_val);
+    if (byte_val > 63) @panic("MixByte must be 0–63");
+    vm.memory.writeByte(address, byte_index, byte_val);
 }
 
-// Empty function, so the compiler doesn't remove other functions
 export fn __keep_alive__() void {}
