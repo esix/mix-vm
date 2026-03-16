@@ -1,17 +1,126 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <title>MIX VM Debugger</title>
-        <link rel="stylesheet" href="style.css" />
-    </head>
-    <body>
-        <h1>MIX Virtual Machine Debugger</h1>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MIX VM Debugger</title>
+  <link rel="stylesheet" href="style.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+<body>
+  <div id="app" x-data="vm" class="app">
 
-        <div id="output"></div>
+    <header class="header">
+      <span class="title">MIX VM Debugger</span>
+      <span class="status" :class="statusClass" x-text="status"></span>
+    </header>
 
-        <button id="run">Load WASM and Call hello()</button>
+    <div class="toolbar">
+      <button @click="load()" :disabled="loading" class="btn btn-primary">Load WASM</button>
+      <div class="sep"></div>
+      <button @click="stepBack()" :disabled="!loaded || history.length === 0" class="btn" title="Step backward (undo)">&#8592; Back</button>
+      <button @click="step()"     :disabled="!loaded || running"             class="btn btn-accent" title="Step forward">Step &#8594;</button>
+      <button @click="toggleRun()" :disabled="!loaded" class="btn" :class="running ? 'btn-stop' : 'btn-run'">
+        <span x-text="running ? '&#9646;&#9646; Stop' : '&#9654; Run'"></span>
+      </button>
+      <div class="sep"></div>
+      <button @click="reset()" :disabled="!loaded" class="btn btn-danger">Reset</button>
+      <div class="sep"></div>
+      <label class="speed-label">
+        Speed:
+        <input type="range" min="1" max="200" x-model.number="runSpeed" @change="applySpeed()" class="speed-slider" />
+        <span x-text="runSpeed + ' Hz'"></span>
+      </label>
+    </div>
 
-        <script src="main.js"></script>
-    </body>
+    <div class="main" x-show="loaded">
+
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>VM State</h2>
+          <table class="info-table">
+            <tr><td>PC</td>    <td class="val mono" x-text="String(pc).padStart(4,'0')"></td></tr>
+            <tr><td>Cycle</td> <td class="val mono" x-text="cycle"></td></tr>
+            <tr><td>History</td><td class="val mono" x-text="history.length + ' / ' + MAX_HISTORY"></td></tr>
+          </table>
+        </section>
+
+        <section class="panel">
+          <h2>Registers <span class="todo">(todo)</span></h2>
+          <table class="info-table stub">
+            <tr><td>rA</td>  <td class="mono">+ 00 00 00 00 00</td></tr>
+            <tr><td>rX</td>  <td class="mono">+ 00 00 00 00 00</td></tr>
+            <tr><td>rI1</td> <td class="mono">+ 00 00</td></tr>
+            <tr><td>rI2</td> <td class="mono">+ 00 00</td></tr>
+            <tr><td>rI3</td> <td class="mono">+ 00 00</td></tr>
+            <tr><td>rI4</td> <td class="mono">+ 00 00</td></tr>
+            <tr><td>rI5</td> <td class="mono">+ 00 00</td></tr>
+            <tr><td>rI6</td> <td class="mono">+ 00 00</td></tr>
+            <tr><td>rJ</td>  <td class="mono">0000</td></tr>
+            <tr><td>OV</td>  <td class="mono">0</td></tr>
+            <tr><td>CMP</td> <td class="mono">E</td></tr>
+          </table>
+        </section>
+      </aside>
+
+      <main class="mem-panel">
+        <div class="mem-toolbar">
+          <h2>Memory</h2>
+          <div class="mem-nav">
+            <button @click="jumpToPC()" class="btn btn-small">&#8594; PC</button>
+            <button @click="prevPage()" :disabled="memPage === 0" class="btn btn-small">&#9650;</button>
+            <span class="page-info" x-text="'Page ' + (memPage + 1) + ' / ' + totalPages"></span>
+            <button @click="nextPage()" :disabled="memPage >= totalPages - 1" class="btn btn-small">&#9660;</button>
+            <input
+              type="number" min="0" max="3999"
+              x-model.number="gotoAddr"
+              @keydown.enter="jumpToAddr()"
+              placeholder="addr 0–3999"
+              class="addr-input"
+              title="Type address and press Enter"
+            />
+          </div>
+        </div>
+
+        <div class="mem-scroll">
+          <table class="mem-table">
+            <thead>
+              <tr>
+                <th>Addr</th>
+                <th>±</th>
+                <th>b0</th><th>b1</th><th>b2</th><th>b3</th><th>b4</th>
+                <th class="instr-col">Instruction</th>
+                <th class="val-col">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="w in visibleWords" :key="w.addr">
+                <tr :class="w.addr === pc ? 'current-pc' : ''">
+                  <td class="c-addr" x-text="String(w.addr).padStart(4,'0')"></td>
+                  <td class="c-sign" x-text="w.sign ? '−' : '+'"></td>
+                  <template x-for="(b, i) in w.bytes" :key="i">
+                    <td class="c-byte" x-text="String(b).padStart(2,'0')"></td>
+                  </template>
+                  <td class="c-instr" x-text="w.instr"></td>
+                  <td class="c-val"  x-text="w.value"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+    </div>
+
+    <div class="welcome" x-show="!loaded">
+      <div x-show="!error">
+        Click <strong>Load WASM</strong> to start the debugger.
+      </div>
+      <div class="err" x-show="error" x-text="'Error: ' + error"></div>
+    </div>
+
+  </div>
+
+  <script src="main.js"></script>
+</body>
 </html>

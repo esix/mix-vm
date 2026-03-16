@@ -28,8 +28,6 @@ pub const MixWordLayout = extern struct { // extern struct ensures C ABI layout,
         for (0..5) |i| {
             // Use @as to cast the result of temp & 0x3F to u8 type
             const byte_val = @as(u8, @truncate(temp & 0x3F)); // Take lower 6 bits and cast to u8
-            // Inline check (alternative: check in the calling code)
-            if (byte_val > 63) @panic("Byte value exceeds 6 bits");
             self.bytes[4 - i] = byte_val;
             temp >>= 6;
         }

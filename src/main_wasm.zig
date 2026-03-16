@@ -8,6 +8,7 @@ const BYTES_PER_WORD = 6;
 
 var vm_memory: Memory = undefined;
 var vm_state: i32 = 0;
+var vm_pc: u32 = 0;
 
 // Function to initialize the VM, called from JS on load
 export fn vm_init() void {
@@ -28,8 +29,13 @@ export fn vm_get_state() i32 {
 }
 
 export fn vm_reset() void {
-    vm_memory.init(); // Reset the memory
+    vm_memory.init();
     vm_state = 0;
+    vm_pc = 0;
+}
+
+export fn vm_get_pc() u32 {
+    return vm_pc;
 }
 
 // Function to read a word from memory from JS
@@ -55,6 +61,12 @@ export fn vm_write_word(address: u32, value: i32) void {
 // Export the size of the required memory (for JS, to know the buffer size)
 export fn vm_get_memory_required_size() u32 {
     return MEMORY_SIZE * BYTES_PER_WORD;
+}
+
+// Export a direct pointer to the VM memory data — JS can create a live Uint8Array
+// view over WASM memory using this pointer, with no copying needed.
+export fn vm_get_memory_ptr() [*]u8 {
+    return vm_memory.getMemoryPtr();
 }
 
 // Export a function to get the current state of the VM memory
