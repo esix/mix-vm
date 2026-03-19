@@ -149,8 +149,9 @@ document.addEventListener('alpine:init', () => {
     running:  false,
     _runInterval: null,
     runSpeed: 10,
-    memPage:  0,
-    gotoAddr: '',
+    memPage:     0,
+    gotoAddr:    '',
+    breakpoints: {},   // addr → true
     view:     'debug',   // 'debug' | 'asm'
 
     // Assembler state
@@ -313,6 +314,7 @@ document.addEventListener('alpine:init', () => {
         this._runInterval = setInterval(() => {
           if (this.halted) { this.toggleRun(); return; }
           this.step();
+          if (this.breakpoints[this.pc]) { this.toggleRun(); this.status = `Break @ ${this.pc}`; }
         }, Math.round(1000 / this.runSpeed));
       }
     },
@@ -323,14 +325,22 @@ document.addEventListener('alpine:init', () => {
         this._runInterval = setInterval(() => {
           if (this.halted) { this.toggleRun(); return; }
           this.step();
+          if (this.breakpoints[this.pc]) { this.toggleRun(); this.status = `Break @ ${this.pc}`; }
         }, Math.round(1000 / this.runSpeed));
       }
+    },
+
+    toggleBreakpoint(a) {
+      const bp = { ...this.breakpoints };
+      if (bp[a]) delete bp[a]; else bp[a] = true;
+      this.breakpoints = bp;
     },
 
     reset() {
       if (!this.loaded) return;
       if (this.running) this.toggleRun();
-      this.history = [];
+      this.history     = [];
+      this.breakpoints = {};
       this.exports.vm_reset();
       this.syncState();
       this.memPage = 0;

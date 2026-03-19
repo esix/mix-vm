@@ -45,7 +45,7 @@ fn writeField(dest: *MixWordLayout, src: MixWordLayout, F: u8) void {
         const dst_pos: u8 = R - k;
         const src_pos: u8 = 5 - k;
         if (dst_pos == 0) {
-            dest.sign = src.sign;
+            dest.sign = if (src_pos == 0) src.sign else @min(src.bytes[src_pos - 1], 1);
         } else {
             dest.bytes[dst_pos - 1] = if (src_pos == 0) src.sign else src.bytes[src_pos - 1];
         }

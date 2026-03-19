@@ -1,33 +1,32 @@
-* Greatest Common Divisor — Knuth Vol.1, Algorithm E (Euclid's algorithm)
-* Computes GCD of values at addresses M and N, stores result at GCD
+* Greatest Common Divisor — Euclid's algorithm
+* gcd(252, 105) = 21, stored at GCD
 *
-* rI1 = u, rI2 = v (or rA/rX)
-M       EQU     1000        * address of first number
-N       EQU     1001        * address of second number
-R       EQU     1002        * address for result
-        ORIG    M
-        CON     252         * first number
-        CON     105         * second number
-        CON     0           * result placeholder
+* At each step: r = u mod v; u ← v; v ← r
+* Loop until v = 0; then gcd = u
+
+U       EQU     1000
+V       EQU     1001
+GCD     EQU     1002
+        ORIG    U
+        CON     252         * u
+        CON     105         * v
+        CON     0           * result
+
         ORIG    3000
-START   ENTA    0
-        LDA     M           * rA = u
-        LDX     N           * rX = v
-E1      CMPX    =0=         * v = 0?
-        JE      DONE
-E2      STX     T           * t = v
-        DIV     N           * rA = u/v, rX = u mod v
-        CMPA    =0=
-        JE      E3
-        LDX     T           * rX = t (= old v)
-        STX     N
-        LDA     T
-        JMP     E1
-E3      LDX     T
-        STX     N
-        LDA     T
-        JMP     E1
-DONE    STX     R           * result in rX
+LOOP    LDA     V           * rA = v
+        CMPA    =0=         * v = 0?
+        JE      DONE        * yes → gcd = u
+        ENTA    0           * rA = 0  (clear high half for DIV)
+        LDX     U           * rX = u
+        DIV     V           * rA = u/v,  rX = u mod v
+        STX     T           * T = u mod v
+        LDA     V           * rA = v  (= new u)
+        STA     U           * u ← v
+        LDA     T           * rA = u mod v  (= new v)
+        STA     V           * v ← u mod v
+        JMP     LOOP
+DONE    LDA     U           * gcd is in U
+        STA     GCD
         HLT
-T       CON     0           * temp
-        END     START
+T       CON     0
+        END     LOOP

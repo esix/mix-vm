@@ -263,6 +263,12 @@ body {
   padding-left: 5px;
 }
 
+.bp-row td:first-child {
+  border-left: 3px solid var(--red);
+  padding-left: 5px;
+}
+.bp-row td { background: #2a1515 !important; }
+
 /* Column styles */
 .c-addr  { color: var(--dim);   width: 46px; }
 .c-sign  { color: var(--green); width: 24px; text-align: center; }

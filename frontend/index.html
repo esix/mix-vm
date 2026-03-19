@@ -103,8 +103,9 @@
             </thead>
             <tbody>
               <template x-for="w in visibleWords" :key="w.addr">
-                <tr :class="w.addr === pc ? 'current-pc' : ''">
-                  <td class="c-addr" x-text="String(w.addr).padStart(4,'0')"></td>
+                <tr :class="w.addr === pc ? 'current-pc' : (breakpoints[w.addr] ? 'bp-row' : '')"
+                    @click="toggleBreakpoint(w.addr)" style="cursor:pointer">
+                  <td class="c-addr" x-text="(breakpoints[w.addr] ? '● ' : '') + String(w.addr).padStart(4,'0')"></td>
                   <td class="c-sign" x-text="w.sign ? '−' : '+'"></td>
                   <template x-for="(b, i) in w.bytes" :key="i">
                     <td class="c-byte" x-text="String(b).padStart(2,'0')"></td>
