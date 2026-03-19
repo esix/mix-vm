@@ -1,6 +1,24 @@
 'use strict';
 
-// MIX opcode names, indexed by C field (0–63)
+// ── MIX character table (matches assembler.js MIX_CHAR_TABLE) ───────────────
+// Index = MIX byte value (0–55); value = display character
+const MIX_CHARSET = Array.from(' ABCDEFGHI~JKLMNOPQR`^STUVWXYZ0123456789.,()+-*/=$<>@;:\'');
+const MIX_CHARMAP = Object.fromEntries(MIX_CHARSET.map((c, i) => [c, i]));
+// Extra aliases for human input
+MIX_CHARMAP['\u0394'] = 10; // Δ
+MIX_CHARMAP['\u03a3'] = 20; // Σ
+MIX_CHARMAP['\u03a0'] = 21; // Π
+
+// Words per I/O block for each device
+function blockWords(device) {
+  if (device <= 15) return 100;          // tape (0-7) or disk (8-15)
+  if (device === 16 || device === 17) return 16;  // card reader / card punch
+  if (device === 18) return 24;          // line printer
+  if (device === 19 || device === 20) return 14;  // typewriter / paper tape
+  return 0;
+}
+
+// ── MIX opcode names, indexed by C field (0–63)
 const OPCODES = [
   'NOP',  'ADD',  'SUB',  'MUL',  'DIV',  'SPEC', 'SHIFT','MOVE',
   'LDA',  'LD1',  'LD2',  'LD3',  'LD4',  'LD5',  'LD6',  'LDX',
@@ -121,6 +139,114 @@ NEXT    INC1    1
         STA     RESULT
         HLT
         END     START`,
+
+  hello_printer: `\
+* Hello, World! — output to line printer (device 18, 24 words / 120 chars)
+BUF     EQU     100
+        ORIG    BUF
+        ALF     HELLO         * H E L L O
+        CON     6882509       *   W O R L  (space+WORL)
+        CON     67108864      * D          (D+spaces)
+        ORIG    3000
+START   OUT     BUF(18)       * send block to printer
+        HLT
+        END     START`,
+
+  hello_tty: `\
+* Hello, World! — output to typewriter/terminal (device 19, 14 words / 70 chars)
+BUF     EQU     100
+        ORIG    BUF
+        ALF     HELLO         * H E L L O
+        CON     6882509       *   W O R L
+        CON     67108864      * D
+        ORIG    3000
+START   OUT     BUF(19)       * send block to typewriter
+        HLT
+        END     START`,
+
+  echo: `\
+* Echo — read one card (device 16) then print it (device 18)
+* Card reader: 16 words = 80 chars per card
+* Printer:     24 words = 120 chars per block (extra words = spaces)
+BUF     EQU     100
+        ORIG    3000
+START   JBUS    *(16)         * wait if card reader busy (NOP: always ready)
+        IN      BUF(16)       * read 16 words from card reader into BUF
+        JBUS    *(18)         * wait if printer busy (NOP)
+        OUT     BUF(18)       * print 24 words (last 8 will be spaces)
+        HLT
+        END     START`,
+
+  tty_echo: `\
+* TTY echo — echo typewriter input back until a line starting with "."
+* (adapted from Knuth TAOCP, jflude/taocp examples)
+* Device 19 (typewriter): 14 words = 70 chars per block
+* Usage: type lines in the TTY Input box, end with a line starting with "."
+TTY     EQU     19
+BUF     EQU     200
+        ORIG    1000
+OUTPUT  OUT     BUF(TTY)      * print BUF to typewriter
+START   IN      BUF(TTY)      * read 14 words (70 chars) from TTY input
+        JBUS    *(TTY)        * wait if busy (NOP: always ready)
+        LDA     BUF           * load first word of input (first 5 chars)
+        CMPA    PERIOD(1:1)   * compare only byte 1 (first char) with "."
+        JNE     OUTPUT        * if not a period line: print and loop
+        HLT
+PERIOD  ALF     "."           * "." = MIX byte 40
+        END     START`,
+
+  primes500: `\
+* Table of the first 500 primes — Knuth TAOCP Vol.1, Program P (section 1.3.2)
+* Output goes to the line printer (device 18). Open the Printer tab to see it.
+L       EQU     500
+PRINTER EQU     18
+PRIME   EQU     99
+BUF0    EQU     2000
+BUF1    EQU     BUF0+25
+        ORIG    3000
+START   IOC     0(PRINTER)    * skip to top of page
+        LD1     =1-L=         * rI1 = 1-500 = -499
+        LD2     =3=           * rI2 = 3 (first candidate N)
+2H      INC1    1             * J++
+        ST2     PRIME+L,1     * PRIME[J] = N
+        J1Z     2F            * 500 primes found? jump to print section
+4H      INC2    2             * N += 2 (next odd candidate)
+        ENT3    2             * K = 2 (start from PRIME[2])
+6H      ENTA    0             * clear rA
+        ENTX    0,2           * rX = N
+        DIV     PRIME,3       * rA = N/PRIME[K], rX = N mod PRIME[K]
+        JXZ     4B            * remainder=0: N is composite, try next
+        CMPA    PRIME,3       * compare quotient with PRIME[K]
+        INC3    1             * K++
+        JG      6B            * quotient > PRIME[K]: keep testing
+        JMP     2B            * otherwise N is prime
+2H      OUT     TITLE(PRINTER) * print title line
+        ENT4    BUF1+10       * rI4 points into buffer 1
+        ENT5    -50           * rI5 = -50
+2H      INC5    L+1           * rI5 += 501
+4H      LDA     PRIME,5       * load PRIME[rI5]
+        CHAR                  * convert to decimal digits in rA:rX
+        STX     0,4(1:4)      * store 4 digits into buffer word at rI4
+        DEC4    1             * buffer pointer--
+        DEC5    50            * rI5 -= 50 (step to next column)
+        J5P     4B            * more primes on this line?
+        OUT     0,4(PRINTER)  * print 24-word line
+        LD4     24,4          * switch to other buffer (double-buffer)
+        J5N     2B            * more lines?
+        HLT
+        ORIG    PRIME+1
+        CON     2             * PRIME[1] = 2
+        ORIG    BUF0-5
+TITLE   ALF     "FIRST"
+        ALF     " FIVE"
+        ALF     " HUND"
+        ALF     "RED P"
+        ALF     "RIMES"
+        ORIG    BUF0+24
+        CON     BUF1+10
+        ORIG    BUF1+24
+        CON     BUF0+10
+        END     START`,
 };
 
 document.addEventListener('alpine:init', () => {
@@ -163,6 +289,23 @@ document.addEventListener('alpine:init', () => {
     // Step-back history: snapshots of full machine state
     history:     [],
     MAX_HISTORY: 200,
+
+    // ── I/O device state ────────────────────────────────────────────────────
+    ioView:    'printer',   // active tab: 'printer' | 'tty' | 'card' | 'storage'
+    ioVisible: true,        // I/O panel visible
+    // Output buffers (append-only; not rolled back on step-back)
+    ioPrinter:   '',        // device 18: line printer output
+    ioTty:       '',        // device 19: typewriter output
+    ioCardPunch: '',        // device 17: card punch output
+    ioPaperTape: '',        // device 20: paper tape output
+    // Input buffers + positions (positions ARE included in step-back snapshots)
+    ioCardInput: '',        // device 16: card reader input (user-editable)
+    ioCardPos:   0,         // chars consumed from ioCardInput
+    ioTtyInput:  '',        // device 19: typewriter input (user-editable)
+    ioTtyPos:    0,         // chars consumed from ioTtyInput
+    // Binary storage: tape (0-7) and disk (8-15)
+    tapes: Array.from({length: 8},  () => ({ blocks: [], pos: 0 })),
+    disks: Array.from({length: 8},  () => ({ blocks: {} })),
 
     // ── Computed ────────────────────────────────────────────────────────────
 
@@ -268,6 +411,8 @@ document.addEventListener('alpine:init', () => {
         regI:     [...this.regI],
         regJ:     this.regJ,
         mem:      new Uint8Array(this.memView),  // copy
+        ioCardPos: this.ioCardPos,
+        ioTtyPos:  this.ioTtyPos,
       });
       if (this.history.length > this.MAX_HISTORY) this.history.shift();
     },
@@ -287,6 +432,9 @@ document.addEventListener('alpine:init', () => {
       e.vm_set_halted(snap.halted ? 1 : 0);
       e.vm_set_overflow(snap.overflow ? 1 : 0);
       e.vm_set_cmp(snap.cmp === 'L' ? 0 : snap.cmp === 'G' ? 2 : 1);
+      // Restore I/O input positions (output is append-only, not rolled back)
+      this.ioCardPos = snap.ioCardPos ?? 0;
+      this.ioTtyPos  = snap.ioTtyPos  ?? 0;
       this.syncState();
     },
 
@@ -294,6 +442,7 @@ document.addEventListener('alpine:init', () => {
       if (!this.loaded || this.halted) return;
       this.saveSnapshot();
       this.exports.vm_step();
+      this.handlePendingIo();
       this.syncState();
     },
 
@@ -345,6 +494,11 @@ document.addEventListener('alpine:init', () => {
       this.syncState();
       this.memPage = 0;
       this.status  = 'Ready';
+      // Reset I/O input positions and storage; keep output buffers (user can clear manually)
+      this.ioCardPos = 0;
+      this.ioTtyPos  = 0;
+      this.tapes = Array.from({length: 8}, () => ({ blocks: [], pos: 0 }));
+      this.disks = Array.from({length: 8}, () => ({ blocks: {} }));
     },
 
     // ── .mix file loader ─────────────────────────────────────────────────
@@ -410,7 +564,11 @@ document.addEventListener('alpine:init', () => {
         const buf = await file.arrayBuffer();
 
         this.exports.vm_reset();   // clear registers and memory
-        this.history = [];
+        this.history   = [];
+        this.ioCardPos = 0;
+        this.ioTtyPos  = 0;
+        this.tapes = Array.from({length: 8}, () => ({ blocks: [], pos: 0 }));
+        this.disks = Array.from({length: 8}, () => ({ blocks: {} }));
 
         const { startAddr, loaded, minAddr, maxAddr } = this.parseMix(buf);
 
@@ -462,7 +620,11 @@ document.addEventListener('alpine:init', () => {
 
       // Load into VM
       this.exports.vm_reset();
-      this.history = [];
+      this.history   = [];
+      this.ioCardPos = 0;
+      this.ioTtyPos  = 0;
+      this.tapes = Array.from({length: 8}, () => ({ blocks: [], pos: 0 }));
+      this.disks = Array.from({length: 8}, () => ({ blocks: {} }));
       for (const { addr, value } of result.words) {
         this.exports.vm_write_word(addr, value);
       }
@@ -484,6 +646,113 @@ document.addEventListener('alpine:init', () => {
       event.target.value = '';
       if (!key) return;
       this.asmSource = ASM_EXAMPLES[key] ?? '';
+    },
+
+    // ── I/O handling ─────────────────────────────────────────────────────────
+
+    // Called after every vm_step() to process any I/O instruction that ran.
+    handlePendingIo() {
+      const e = this.exports;
+      const kind = e.vm_get_io_kind();
+      if (kind === 0) return;
+      const device = e.vm_get_io_device();
+      const addr   = e.vm_get_io_addr();
+      const m      = e.vm_get_io_m();
+      e.vm_clear_io();
+      switch (kind) {
+        case 1: this.ioOut(device, addr); break;
+        case 2: this.ioIn(device, addr);  break;
+        case 3: this.ioControl(device, m); break;
+      }
+    },
+
+    // OUT M,F  — write one block from memory[addr..addr+blockWords-1] to device F
+    ioOut(device, memAddr) {
+      const n = blockWords(device);
+      if (!n) return;
+      if (device <= 15) {
+        // Binary device: store raw word values
+        const words = [];
+        for (let i = 0; i < n; i++) words.push(this.exports.vm_read_word(memAddr + i));
+        if (device <= 7) {
+          const t = this.tapes[device];
+          t.blocks[t.pos] = words;
+          t.pos++;
+          this.tapes = [...this.tapes];  // trigger reactivity
+        } else {
+          const blk = this.exports.vm_get_reg_x();
+          this.disks[device - 8].blocks[blk] = words;
+          this.disks = [...this.disks];
+        }
+        return;
+      }
+      // Character device: decode 5 MIX bytes per word → text
+      let text = '';
+      for (let i = 0; i < n; i++) {
+        const off = (memAddr + i) * 6;
+        for (let b = 0; b < 5; b++) text += MIX_CHARSET[this.memView[off + b]] ?? ' ';
+      }
+      text = text.trimEnd();
+      if      (device === 17) this.ioCardPunch += text + '\n';
+      else if (device === 18) this.ioPrinter   += text + '\n';
+      else if (device === 19) this.ioTty       += text + '\n';
+      else if (device === 20) this.ioPaperTape += text + '\n';
+      // Auto-scroll output textareas
+      this.$nextTick(() => {
+        const id = device === 18 ? 'printerOut' : device === 19 ? 'ttyOut'
+                 : device === 17 ? 'cardPunchOut' : 'paperTapeOut';
+        const el = document.getElementById(id);
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    // IN M,F  — read one block from device F into memory[addr..addr+blockWords-1]
+    ioIn(device, memAddr) {
+      const n = blockWords(device);
+      if (!n) return;
+      if (device <= 15) {
+        // Binary device: restore raw word values
+        let words;
+        if (device <= 7) {
+          const t = this.tapes[device];
+          words = t.blocks[t.pos] ?? new Array(n).fill(0);
+          t.pos++;
+          this.tapes = [...this.tapes];
+        } else {
+          const blk = this.exports.vm_get_reg_x();
+          words = this.disks[device - 8].blocks[blk] ?? new Array(n).fill(0);
+        }
+        for (let i = 0; i < n; i++) this.exports.vm_write_word(memAddr + i, words[i] ?? 0);
+        return;
+      }
+      // Character device: encode input chars as MIX bytes
+      const src    = device === 16 ? this.ioCardInput : this.ioTtyInput;
+      const posKey = device === 16 ? 'ioCardPos'     : 'ioTtyPos';
+      const pos    = this[posKey];
+      for (let i = 0; i < n; i++) {
+        const off = (memAddr + i) * 6;
+        for (let b = 0; b < 5; b++) {
+          const ch = ((pos + i * 5 + b) < src.length) ? src[pos + i * 5 + b].toUpperCase() : ' ';
+          this.memView[off + b] = MIX_CHARMAP[ch] ?? 0;
+        }
+        this.memView[off + 5] = 0;  // sign = positive
+      }
+      this[posKey] += n * 5;
+    },
+
+    // IOC M,F  — device control
+    ioControl(device, m) {
+      if (device <= 7) {
+        // Tape: rewind if M=0, seek to end if M<0
+        const t = this.tapes[device];
+        if (m === 0) t.pos = 0;
+        else if (m < 0) t.pos = t.blocks.length;
+        this.tapes = [...this.tapes];
+      } else if (device === 18) {
+        // Printer: IOC advances to new page
+        this.ioPrinter += '─── new page ───\n';
+      }
+      // Other character devices: no-op
     },
 
   }));

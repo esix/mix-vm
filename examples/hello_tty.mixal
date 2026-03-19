@@ -1,0 +1,13 @@
+* Hello, World! — output to typewriter / terminal (device 19)
+* TTY block: 14 words = 70 chars
+* Open the TTY tab in the I/O panel to see output.
+
+BUF     EQU     100
+        ORIG    BUF
+        ALF     HELLO         * H E L L O
+        CON     6882509       * " WORL"  (space W O R L)
+        CON     67108864      * "D    "  (D then spaces)
+        ORIG    3000
+START   OUT     BUF(19)       * send 14-word block to typewriter
+        HLT
+        END     START

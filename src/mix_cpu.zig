@@ -423,7 +423,11 @@ pub fn step(vm: *Vm) void {
         31 => opSTX(vm, M, F),
         32 => opSTJ(vm, M, F),
         33 => opSTZ(vm, M, F),
-        34, 35, 36, 37, 38 => {}, // I/O stubs: JBUS, IOC, IN, OUT, JRED
+        34 => {},                                                              // JBUS — devices always ready, never jumps
+        35 => { vm.io_kind = 3; vm.io_device = F; vm.io_m = M; },            // IOC
+        36 => { vm.io_kind = 2; vm.io_device = F; vm.io_addr = addr(M); },   // IN
+        37 => { vm.io_kind = 1; vm.io_device = F; vm.io_addr = addr(M); },   // OUT
+        38 => { vm.rJ = vm.pc; vm.pc = addr(M); },                           // JRED — always ready, always jumps
         39 => opJMP(vm, M, F),
         40 => opJA(vm, M, F),
         41 => opJi(vm, M, F, 0),

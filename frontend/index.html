@@ -40,7 +40,9 @@
       <button @click="view = 'asm'"    class="btn btn-small" :class="view === 'asm'    ? 'btn-accent' : ''">Assembler</button>
     </div>
 
-    <div class="main" x-show="loaded && view === 'debug'">
+    <div x-show="loaded && view === 'debug'" style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0">
+
+    <div class="main" style="flex:1;min-height:0">
 
       <aside class="sidebar">
         <section class="panel">
@@ -119,7 +121,103 @@
         </div>
       </main>
 
-    </div>
+    </div><!-- /.main -->
+
+    <!-- ── I/O Panel ──────────────────────────────────────────────────── -->
+    <div class="io-panel">
+      <div class="io-header">
+        <span class="io-title">I/O DEVICES</span>
+        <div class="io-tabs">
+          <button class="io-tab" :class="ioView==='printer'  ? 'io-tab-active' : ''" @click="ioView='printer'">
+            Printer (18)<span class="io-dot" x-show="ioPrinter">●</span>
+          </button>
+          <button class="io-tab" :class="ioView==='tty'      ? 'io-tab-active' : ''" @click="ioView='tty'">
+            TTY (19)<span class="io-dot" x-show="ioTty">●</span>
+          </button>
+          <button class="io-tab" :class="ioView==='card'     ? 'io-tab-active' : ''" @click="ioView='card'">
+            Card I/O (16/17)<span class="io-dot" x-show="ioCardPunch">●</span>
+          </button>
+          <button class="io-tab" :class="ioView==='storage'  ? 'io-tab-active' : ''" @click="ioView='storage'">
+            Storage (0–15)
+          </button>
+        </div>
+        <button class="btn btn-small" @click="ioVisible = !ioVisible" x-text="ioVisible ? '▼' : '▲'" title="Toggle I/O panel"></button>
+      </div>
+
+      <div class="io-body" x-show="ioVisible">
+
+        <!-- Printer (device 18) -->
+        <div x-show="ioView === 'printer'" class="io-device">
+          <textarea id="printerOut" class="io-output" readonly x-text="ioPrinter || '(no output yet)'" placeholder="(no output yet)"></textarea>
+          <div class="io-actions">
+            <span class="io-hint">Device 18 — OUT BUF(18) writes 24 words (120 chars)</span>
+            <button class="btn btn-small btn-danger" @click="ioPrinter = ''">Clear</button>
+          </div>
+        </div>
+
+        <!-- Typewriter / TTY (device 19) -->
+        <div x-show="ioView === 'tty'" class="io-device">
+          <textarea id="ttyOut" class="io-output io-output-half" readonly x-text="ioTty || '(no output yet)'"></textarea>
+          <div class="io-input-row">
+            <label class="io-hint">Input for IN BUF(19) — 14 words (70 chars) per read, pos=<span x-text="ioTtyPos"></span></label>
+            <textarea class="io-input-buf" x-model="ioTtyInput" placeholder="Type TTY input here…" spellcheck="false"></textarea>
+            <div class="io-actions">
+              <button class="btn btn-small" @click="ioTtyPos = 0" title="Rewind input position">Rewind input</button>
+              <button class="btn btn-small btn-danger" @click="ioTty = ''">Clear output</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card reader (16) + card punch (17) -->
+        <div x-show="ioView === 'card'" class="io-device">
+          <div class="io-split">
+            <div class="io-half">
+              <div class="io-hint">Card Reader (16) — IN BUF(16) reads 16 words (80 chars), pos=<span x-text="ioCardPos"></span></div>
+              <textarea class="io-input-buf" x-model="ioCardInput" placeholder="Type card data here (80 chars per card)…" spellcheck="false"></textarea>
+              <div class="io-actions">
+                <button class="btn btn-small" @click="ioCardPos = 0">Rewind</button>
+              </div>
+            </div>
+            <div class="io-half">
+              <div class="io-hint">Card Punch (17) — OUT BUF(17) output:</div>
+              <textarea id="cardPunchOut" class="io-output io-output-half" readonly x-text="ioCardPunch || '(no output yet)'"></textarea>
+              <div class="io-actions">
+                <button class="btn btn-small btn-danger" @click="ioCardPunch = ''">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tape / Disk (devices 0–15) -->
+        <div x-show="ioView === 'storage'" class="io-device">
+          <div class="io-split">
+            <div class="io-half">
+              <div class="io-hint">Tape units (0–7) — 100 words/block, sequential</div>
+              <template x-for="(t, i) in tapes" :key="i">
+                <div class="io-storage-row">
+                  <span class="io-dev-label" x-text="'Tape ' + i + ':'"></span>
+                  <span class="io-dev-info" x-text="t.blocks.length + ' blocks, pos=' + t.pos"></span>
+                  <button class="btn btn-small" @click="tapes[i].pos = 0; tapes = [...tapes]">Rewind</button>
+                </div>
+              </template>
+            </div>
+            <div class="io-half">
+              <div class="io-hint">Disk units (8–15) — 100 words/block, random access (block# from rX)</div>
+              <template x-for="(d, i) in disks" :key="i">
+                <div class="io-storage-row">
+                  <span class="io-dev-label" x-text="'Disk ' + (i+8) + ':'"></span>
+                  <span class="io-dev-info" x-text="Object.keys(d.blocks).length + ' blocks stored'"></span>
+                  <button class="btn btn-small btn-danger" @click="disks[i].blocks = {}; disks = [...disks]">Erase</button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.io-body -->
+    </div><!-- /.io-panel -->
+
+    </div><!-- /debug-wrapper -->
 
     <!-- ── Assembler view ──────────────────────────────────────────────── -->
     <div class="asm-panel" x-show="loaded && view === 'asm'">
@@ -128,8 +226,17 @@
           <button @click="asmAssemble()" class="btn btn-run">&#9654; Assemble &amp; Load</button>
           <select class="btn" @change="asmLoadExample($event)">
             <option value="">Load example…</option>
-            <option value="gcd">GCD (Euclid)</option>
-            <option value="max">Find Maximum</option>
+            <optgroup label="Algorithms">
+              <option value="gcd">GCD (Euclid)</option>
+              <option value="max">Find Maximum</option>
+            </optgroup>
+            <optgroup label="I/O">
+              <option value="hello_printer">Hello World → Printer (18)</option>
+              <option value="hello_tty">Hello World → TTY (19)</option>
+              <option value="echo">Card Reader → Printer echo</option>
+              <option value="tty_echo">TTY echo loop (until ".")</option>
+              <option value="primes500">500 Primes (TAOCP 1.3.2)</option>
+            </optgroup>
           </select>
         </div>
         <span class="page-info" x-text="asmStatusText"></span>

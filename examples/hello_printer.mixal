@@ -1,0 +1,13 @@
+* Hello, World! — output to line printer (device 18)
+* Printer block: 24 words = 120 chars
+* Open the Printer tab in the I/O panel to see output.
+
+BUF     EQU     100
+        ORIG    BUF
+        ALF     HELLO         * H E L L O
+        CON     6882509       * " WORL"  (space W O R L)
+        CON     67108864      * "D    "  (D then spaces)
+        ORIG    3000
+START   OUT     BUF(18)       * send 24-word block to printer
+        HLT
+        END     START

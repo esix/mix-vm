@@ -81,4 +81,12 @@ export fn vm_write_byte(address: u32, byte_index: u32, byte_val: u8) void {
     vm.memory.writeByte(address, byte_index, byte_val);
 }
 
+// ── Pending I/O (set during step; host reads then clears) ──────────────────
+
+export fn vm_get_io_kind()   u32 { return vm.io_kind; }
+export fn vm_get_io_device() u32 { return vm.io_device; }
+export fn vm_get_io_addr()   u32 { return vm.io_addr; }
+export fn vm_get_io_m()      i32 { return vm.io_m; }
+export fn vm_clear_io()     void { vm.io_kind = 0; }
+
 export fn __keep_alive__() void {}

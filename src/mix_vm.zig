@@ -43,6 +43,13 @@ pub const Vm = struct {
     cmp:      CompareFlag,    // result of last comparison
     halted:   bool,
 
+    // Pending I/O: set by mix_cpu.step(), cleared by host after handling.
+    // io_kind: 0=none, 1=OUT, 2=IN, 3=IOC
+    io_kind:   u8,
+    io_device: u8,
+    io_addr:   u32,
+    io_m:      i32,
+
     pub fn init(self: *Vm) void {
         self.memory.init();
         self.rA       = .{ .bytes = .{ 0, 0, 0, 0, 0 }, .sign = 0 };
@@ -54,5 +61,9 @@ pub const Vm = struct {
         self.overflow = false;
         self.cmp      = .equal;
         self.halted   = false;
+        self.io_kind   = 0;
+        self.io_device = 0;
+        self.io_addr   = 0;
+        self.io_m      = 0;
     }
 };

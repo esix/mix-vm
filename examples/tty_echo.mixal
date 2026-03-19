@@ -1,0 +1,26 @@
+* TTY echo — echo typewriter input back until a line starting with "."
+* Adapted from Knuth TAOCP / jflude/taocp examples
+*
+* Device 19 (typewriter): 14 words = 70 chars per block.
+* The program reads one block at a time, prints it, and repeats.
+* It halts when the first character of a block is "." (MIX byte 40).
+*
+* Usage:
+*   1. Open the TTY tab in the I/O panel.
+*   2. Type text in the TTY Input box (70 chars per "card").
+*      End your input with a line whose first character is "."
+*      e.g.:  "HELLO WORLD                                                           ."
+*   3. Assemble & Load, then Run.
+
+TTY     EQU     19
+BUF     EQU     200
+        ORIG    1000
+OUTPUT  OUT     BUF(TTY)      * print BUF to typewriter
+START   IN      BUF(TTY)      * read 14 words (70 chars) from TTY input
+        JBUS    *(TTY)        * wait if busy (NOP: always ready)
+        LDA     BUF           * load first word (first 5 chars of block)
+        CMPA    PERIOD(1:1)   * compare byte 1 (first char) with "."
+        JNE     OUTPUT        * not a period line → print it and read next
+        HLT
+PERIOD  ALF     "."           * "." = MIX byte 40
+        END     START

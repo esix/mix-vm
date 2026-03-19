@@ -78,9 +78,15 @@ function assembleMixal(source) {
     const opcode = r.slice(opStart, pos).toUpperCase();
     while (pos < r.length && (r[pos] === ' ' || r[pos] === '\t')) pos++;
 
-    // Operand (up to next whitespace)
+    // Operand: quoted strings count as single token (don't stop at space inside quotes)
     const opndStart = pos;
-    while (pos < r.length && r[pos] !== ' ' && r[pos] !== '\t') pos++;
+    if (pos < r.length && (r[pos] === '"' || r[pos] === "'")) {
+      const q = r[pos++];
+      while (pos < r.length && r[pos] !== q) pos++;
+      if (pos < r.length) pos++;  // consume closing quote
+    } else {
+      while (pos < r.length && r[pos] !== ' ' && r[pos] !== '\t') pos++;
+    }
     const operand = r.slice(opndStart, pos);
 
     return { lineNum, raw: r, label, opcode, operand, skip: false };
@@ -101,7 +107,24 @@ function assembleMixal(source) {
       if (ch >= '0' && ch <= '9') {
         let n = '';
         while (i < s.length && s[i] >= '0' && s[i] <= '9') n += s[i++];
-        tokens.push({ t: 'v', v: parseInt(n, 10) });
+        // Local label reference: nB (backward) or nF (forward)
+        if (i < s.length && (s[i] === 'B' || s[i] === 'b' || s[i] === 'F' || s[i] === 'f')) {
+          const dir = s[i++].toUpperCase();
+          const digit = parseInt(n, 10);
+          const defs = localDefs[digit] || [];
+          let target;
+          if (dir === 'B') {
+            const prev = defs.filter(a => a <= loc);
+            target = prev.length > 0 ? Math.max(...prev) : undefined;
+          } else {
+            const next = defs.filter(a => a > loc);
+            target = next.length > 0 ? Math.min(...next) : undefined;
+          }
+          if (target === undefined) throw new Error(`No local label ${digit}H found ${dir === 'B' ? 'before' : 'after'} loc ${loc}`);
+          tokens.push({ t: 'v', v: target });
+        } else {
+          tokens.push({ t: 'v', v: parseInt(n, 10) });
+        }
       } else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
         let sym = '';
         while (i < s.length && /[A-Za-z0-9]/.test(s[i])) sym += s[i++];
@@ -151,6 +174,7 @@ function assembleMixal(source) {
   let loc = 0;
   const litExprs  = [];  // [{expr, addr}] in order of first appearance
   const litMap    = {};  // expr string → index in litExprs
+  const localDefs = {};  // n → sorted list of addresses where nH was defined
 
   function collectLiteral(operand) {
     if (!operand.startsWith('=')) return;
@@ -182,7 +206,16 @@ function assembleMixal(source) {
       for (const li of litExprs) { li.addr = loc; loc++; }
       line.loc = loc;
     } else if (opcode === 'CON' || opcode === 'ALF' || opcode in ASM_OPS) {
-      if (label) symbols[label] = loc;
+      if (label) {
+        if (/^\d+H$/.test(label)) {
+          // Local label nH: register address in localDefs[n]
+          const n = parseInt(label.slice(0, -1), 10);
+          if (!localDefs[n]) localDefs[n] = [];
+          localDefs[n].push(loc);
+        } else {
+          symbols[label] = loc;
+        }
+      }
       collectLiteral(operand);
       loc++;
     } else {
@@ -236,7 +269,7 @@ function assembleMixal(source) {
       }
     }
 
-    // Field spec (L:R) — suffix
+    // Field spec (L:R) or plain value (device number etc.) — suffix
     let field = null;
     const fp = s.lastIndexOf('(');
     if (fp >= 0 && s.endsWith(')')) {
@@ -246,6 +279,9 @@ function assembleMixal(source) {
         const L = parseInt(fspec.slice(0, ci), 10);
         const R = parseInt(fspec.slice(ci + 1), 10);
         if (!isNaN(L) && !isNaN(R)) field = 8 * L + R;
+      } else {
+        // Plain number or symbol (e.g. device unit for I/O, or raw field value)
+        try { field = evalExpr(fspec, loc); } catch (_) { /* leave null */ }
       }
       s = s.slice(0, fp);
     }

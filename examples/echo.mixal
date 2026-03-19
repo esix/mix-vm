@@ -1,0 +1,15 @@
+* Echo — read one card from card reader (device 16), print to printer (device 18)
+*
+* Card reader block : 16 words = 80 chars per card
+* Printer block     : 24 words = 120 chars (last 8 words will be spaces)
+*
+* Usage: put card data in the Card I/O tab → Card Reader input, then Run.
+
+BUF     EQU     100
+        ORIG    3000
+START   JBUS    *(16)         * wait if card reader busy (NOP: always ready)
+        IN      BUF(16)       * read 16 words (80 chars) from card reader into BUF
+        JBUS    *(18)         * wait if printer busy (NOP)
+        OUT     BUF(18)       * print 24 words (last 8 are zeros = spaces)
+        HLT
+        END     START
