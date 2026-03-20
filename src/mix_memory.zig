@@ -57,14 +57,19 @@ pub const MixWordLayout = extern struct { // extern struct ensures C ABI layout,
     }
 };
 
+// Page size for dirty tracking: 2^PAGE_BITS words per page.
+// 4000 words / 64 = 62.5 → 63 pages, fits in a u64 dirty bitmap.
+pub const PAGE_BITS: u5 = 6; // 64 words per page
+
 // VM Memory: 4000 words, indexed from 0 to 3999
 // Each word occupies 6 bytes (5 data bytes + 1 sign byte)
 pub const Memory = struct {
-    // const memory_size = 4000; // Moved outside the struct as MEMORY_SIZE
-    data: [MEMORY_SIZE * 6]u8 = undefined, // Use the external constant
+    data:  [MEMORY_SIZE * 6]u8,  // flat byte array
+    dirty: u64,                  // one bit per 64-word page (pages 0–62)
 
     pub fn init(self: *Memory) void {
-        @memset(&self.data, 0); // Fill with zeros
+        @memset(&self.data, 0);
+        self.dirty = 0;
     }
 
     // Gets a pointer to the start of the word at the given address
@@ -92,11 +97,9 @@ pub const Memory = struct {
     }
 
     pub fn writeWord(self: *Memory, address: u32, word: MixWordLayout) void {
-        // Validate before writing
-        if (!word.validate()) {
-             @panic("Invalid MixWord value");
-        }
-        self.getWordPtrMut(address).* = word; // Dereference the pointer, assign the word
+        if (!word.validate()) @panic("Invalid MixWord value");
+        self.dirty |= @as(u64, 1) << @as(u6, @truncate(address >> PAGE_BITS));
+        self.getWordPtrMut(address).* = word;
     }
 
     // Convenient function to read a byte from a word

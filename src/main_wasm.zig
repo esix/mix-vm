@@ -81,6 +81,12 @@ export fn vm_write_byte(address: u32, byte_index: u32, byte_val: u8) void {
     vm.memory.writeByte(address, byte_index, byte_val);
 }
 
+// ── Dirty-page tracking (one bit per 64-word page) ─────────────────────────
+
+export fn vm_get_dirty_lo() u32 { return @truncate(vm.memory.dirty); }
+export fn vm_get_dirty_hi() u32 { return @truncate(vm.memory.dirty >> 32); }
+export fn vm_clear_dirty()  void { vm.memory.dirty = 0; }
+
 // ── Pending I/O (set during step; host reads then clears) ──────────────────
 
 export fn vm_get_io_kind()   u32 { return vm.io_kind; }

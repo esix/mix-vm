@@ -31,9 +31,14 @@
       <input type="file" x-ref="mixFile" accept=".mix" @change="loadMixFile($event)" style="display:none" />
       <div class="sep"></div>
       <label class="speed-label">
-        Speed:
-        <input type="range" min="1" max="200" x-model.number="runSpeed" @change="applySpeed()" class="speed-slider" />
-        <span x-text="runSpeed + ' Hz'"></span>
+        Steps/frame:
+        <select x-model.number="batchSize" class="btn btn-small">
+          <option value="1">1</option>
+          <option value="10">10</option>
+          <option value="100">100</option>
+          <option value="1000">1 K</option>
+          <option value="10000">10 K</option>
+        </select>
       </label>
       <div class="sep"></div>
       <button @click="view = 'debug'"  class="btn btn-small" :class="view === 'debug'  ? 'btn-accent' : ''">Debugger</button>
@@ -48,7 +53,12 @@
         <section class="panel">
           <h2>VM State</h2>
           <table class="info-table">
-            <tr><td>PC</td>     <td class="val mono" x-text="fmtAddr(pc)"></td></tr>
+            <tr><td>PC</td>
+              <td class="val mono">
+                <span x-text="fmtAddr(pc)"></span>
+                <span class="sym-label" x-show="addrToSymbol[pc]" x-text="' ' + addrToSymbol[pc]"></span>
+              </td>
+            </tr>
             <tr><td>Cycle</td>  <td class="val mono" x-text="cycle"></td></tr>
             <tr><td>Halted</td> <td class="val mono" :class="halted ? 'bad' : ''" x-text="halted ? 'YES' : 'no'"></td></tr>
             <tr><td>History</td><td class="val mono" x-text="history.length + ' / ' + MAX_HISTORY"></td></tr>
@@ -107,7 +117,10 @@
               <template x-for="w in visibleWords" :key="w.addr">
                 <tr :class="w.addr === pc ? 'current-pc' : (breakpoints[w.addr] ? 'bp-row' : '')"
                     @click="toggleBreakpoint(w.addr)" style="cursor:pointer">
-                  <td class="c-addr" x-text="(breakpoints[w.addr] ? '● ' : '') + String(w.addr).padStart(4,'0')"></td>
+                  <td class="c-addr">
+                    <div x-text="(breakpoints[w.addr] ? '● ' : '') + String(w.addr).padStart(4,'0')"></div>
+                    <div class="c-label" x-show="w.label" x-text="w.label"></div>
+                  </td>
                   <td class="c-sign" x-text="w.sign ? '−' : '+'"></td>
                   <template x-for="(b, i) in w.bytes" :key="i">
                     <td class="c-byte" x-text="String(b).padStart(2,'0')"></td>

@@ -489,6 +489,21 @@ body {
 .io-dev-label { color: var(--dim); width: 55px; flex-shrink: 0; }
 .io-dev-info  { color: var(--text); flex: 1; }
 
+/* ── Symbol labels ───────────────────────────────────────────────────────── */
+
+.sym-label {
+  color: var(--accent);
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.c-label {
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.2;
+  opacity: 0.8;
+}
+
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar       { width: 6px; height: 6px; }

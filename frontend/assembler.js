@@ -347,5 +347,5 @@ function assembleMixal(source) {
     catch (e) { errors.push(`Literal '=${li.expr}=': ${e.message}`); }
   }
 
-  return { words, startAddr, errors };
+  return { words, startAddr, errors, symbols };
 }

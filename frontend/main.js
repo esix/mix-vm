@@ -273,8 +273,7 @@ document.addEventListener('alpine:init', () => {
     error:    null,
     status:   'Not loaded',
     running:  false,
-    _runInterval: null,
-    runSpeed: 10,
+    batchSize: 1000,    // steps per rAF frame during Run
     memPage:     0,
     gotoAddr:    '',
     breakpoints: {},   // addr → true
@@ -286,9 +285,14 @@ document.addEventListener('alpine:init', () => {
     asmOutput:     '',
     asmStatusText: 'Ready',
 
-    // Step-back history: snapshots of full machine state
-    history:     [],
-    MAX_HISTORY: 200,
+    // Step-back history: delta snapshots (dirty pages + registers)
+    history:      [],
+    MAX_HISTORY:  200,
+    _memoryShadow: null,  // Uint8Array(24000) — mirror of WASM memory after each step
+
+    // Symbol table (from last assemble)
+    symbols:      {},   // name → address
+    addrToSymbol: {},   // address → name
 
     // ── I/O device state ────────────────────────────────────────────────────
     ioView:    'printer',   // active tab: 'printer' | 'tty' | 'card' | 'storage'
@@ -334,6 +338,7 @@ document.addEventListener('alpine:init', () => {
           addr, bytes, sign,
           instr: decodeInstruction(bytes, sign),
           value: wordValue(bytes, sign),
+          label: this.addrToSymbol[addr] ?? '',
         });
       }
       return out;
@@ -371,6 +376,7 @@ document.addEventListener('alpine:init', () => {
         const size = this.exports.vm_get_memory_required_size();
         this.memView = new Uint8Array(this.exports.memory.buffer, ptr, size);
 
+        this._memoryShadow = new Uint8Array(size); // zeros = matches initial WASM memory
         this.syncState();
         this.loaded = true;
         this.status = 'Ready';
@@ -399,40 +405,53 @@ document.addEventListener('alpine:init', () => {
       this.regJ = e.vm_get_reg_j();
     },
 
-    saveSnapshot() {
-      this.history.push({
-        pc:       this.pc,
-        cycle:    this.cycle,
-        halted:   this.halted,
-        overflow: this.overflow,
-        cmp:      this.cmp,
-        regA:     this.regA,
-        regX:     this.regX,
-        regI:     [...this.regI],
-        regJ:     this.regJ,
-        mem:      new Uint8Array(this.memView),  // copy
-        ioCardPos: this.ioCardPos,
-        ioTtyPos:  this.ioTtyPos,
-      });
-      if (this.history.length > this.MAX_HISTORY) this.history.shift();
+    // Build a delta snapshot: save pre-step registers + capture dirty pages from shadow.
+    // Call AFTER vm_step() and handlePendingIo() so dirty is populated.
+    _buildSnapshot(pre) {
+      const lo = this.exports.vm_get_dirty_lo();
+      const hi = this.exports.vm_get_dirty_hi();
+      const pages = [];
+      for (let p = 0; p < 32; p++) {
+        if (lo >>> p & 1) this._capturePage(pages, p);
+        if (hi >>> p & 1) this._capturePage(pages, p + 32);
+      }
+      // Update shadow with new values for dirty pages
+      for (const { page } of pages) {
+        const off = page * 64 * 6;
+        const len = Math.min(384, 24000 - off);
+        this._memoryShadow.set(this.memView.subarray(off, off + len), off);
+      }
+      return { ...pre, pages };
+    },
+
+    _capturePage(pages, pageIdx) {
+      const off = pageIdx * 64 * 6;
+      const len = Math.min(384, 24000 - off);
+      if (len <= 0) return;
+      const data = new Uint8Array(len);
+      data.set(this._memoryShadow.subarray(off, off + len));
+      pages.push({ page: pageIdx, data });
     },
 
     restoreSnapshot(snap) {
       const e = this.exports;
-      // Restore memory
-      new Uint8Array(e.memory.buffer, e.vm_get_memory_ptr(), snap.mem.length).set(snap.mem);
-      // Restore registers
+      // Restore only the pages that changed in that step
+      for (const { page, data } of snap.pages) {
+        const off = page * 64 * 6;
+        this.memView.set(data, off);
+        this._memoryShadow.set(data, off);
+      }
+      e.vm_clear_dirty();
+      // Restore registers and state
       e.vm_set_reg_a(snap.regA);
       e.vm_set_reg_x(snap.regX);
       for (let i = 1; i <= 6; i++) e.vm_set_reg_i(i, snap.regI[i - 1]);
       e.vm_set_reg_j(snap.regJ);
-      // Restore VM state
       e.vm_set_pc(snap.pc);
       e.vm_set_cycle(snap.cycle);
       e.vm_set_halted(snap.halted ? 1 : 0);
       e.vm_set_overflow(snap.overflow ? 1 : 0);
       e.vm_set_cmp(snap.cmp === 'L' ? 0 : snap.cmp === 'G' ? 2 : 1);
-      // Restore I/O input positions (output is append-only, not rolled back)
       this.ioCardPos = snap.ioCardPos ?? 0;
       this.ioTtyPos  = snap.ioTtyPos  ?? 0;
       this.syncState();
@@ -440,9 +459,19 @@ document.addEventListener('alpine:init', () => {
 
     step() {
       if (!this.loaded || this.halted) return;
-      this.saveSnapshot();
+      // Capture pre-step registers (cheaply, before executing)
+      const pre = {
+        pc: this.pc, cycle: this.cycle, halted: this.halted,
+        overflow: this.overflow, cmp: this.cmp,
+        regA: this.regA, regX: this.regX, regI: [...this.regI], regJ: this.regJ,
+        ioCardPos: this.ioCardPos, ioTtyPos: this.ioTtyPos,
+      };
+      this.exports.vm_clear_dirty();
       this.exports.vm_step();
       this.handlePendingIo();
+      // Build delta snapshot from dirty pages, push to history
+      this.history.push(this._buildSnapshot(pre));
+      if (this.history.length > this.MAX_HISTORY) this.history.shift();
       this.syncState();
     },
 
@@ -453,29 +482,41 @@ document.addEventListener('alpine:init', () => {
 
     toggleRun() {
       if (this.running) {
-        clearInterval(this._runInterval);
-        this._runInterval = null;
         this.running = false;
         this.status  = 'Paused';
+        // shadow sync happens inside _runFrame when it detects running=false
       } else {
+        if (this.halted) return;
         this.running = true;
         this.status  = 'Running';
-        this._runInterval = setInterval(() => {
-          if (this.halted) { this.toggleRun(); return; }
-          this.step();
-          if (this.breakpoints[this.pc]) { this.toggleRun(); this.status = `Break @ ${this.pc}`; }
-        }, Math.round(1000 / this.runSpeed));
+        requestAnimationFrame(() => this._runFrame());
       }
     },
 
-    applySpeed() {
-      if (this.running) {
-        clearInterval(this._runInterval);
-        this._runInterval = setInterval(() => {
-          if (this.halted) { this.toggleRun(); return; }
-          this.step();
-          if (this.breakpoints[this.pc]) { this.toggleRun(); this.status = `Break @ ${this.pc}`; }
-        }, Math.round(1000 / this.runSpeed));
+    _runFrame() {
+      if (!this.running) {
+        // Sync shadow so single-step history is valid from here
+        this._memoryShadow.set(this.memView);
+        this.exports.vm_clear_dirty();
+        return;
+      }
+      const e = this.exports;
+      const n = this.batchSize;
+      let done = false;
+      for (let i = 0; i < n; i++) {
+        if (e.vm_get_halted()) { done = true; break; }
+        e.vm_step();
+        this.handlePendingIo();
+        if (this.breakpoints[e.vm_get_pc()]) { done = true; break; }
+      }
+      this.syncState();
+      if (done) {
+        this.running = false;
+        this.status  = this.halted ? 'Halted' : `Break @ ${this.pc}`;
+        this._memoryShadow.set(this.memView);
+        e.vm_clear_dirty();
+      } else {
+        requestAnimationFrame(() => this._runFrame());
       }
     },
 
@@ -487,14 +528,17 @@ document.addEventListener('alpine:init', () => {
 
     reset() {
       if (!this.loaded) return;
-      if (this.running) this.toggleRun();
+      if (this.running) { this.running = false; }
       this.history     = [];
       this.breakpoints = {};
+      this.symbols     = {};
+      this.addrToSymbol = {};
       this.exports.vm_reset();
+      this.exports.vm_clear_dirty();
+      if (this._memoryShadow) this._memoryShadow.fill(0);
       this.syncState();
       this.memPage = 0;
       this.status  = 'Ready';
-      // Reset I/O input positions and storage; keep output buffers (user can clear manually)
       this.ioCardPos = 0;
       this.ioTtyPos  = 0;
       this.tapes = Array.from({length: 8}, () => ({ blocks: [], pos: 0 }));
@@ -563,8 +607,10 @@ document.addEventListener('alpine:init', () => {
       try {
         const buf = await file.arrayBuffer();
 
-        this.exports.vm_reset();   // clear registers and memory
-        this.history   = [];
+        this.exports.vm_reset();
+        this.history      = [];
+        this.symbols      = {};
+        this.addrToSymbol = {};
         this.ioCardPos = 0;
         this.ioTtyPos  = 0;
         this.tapes = Array.from({length: 8}, () => ({ blocks: [], pos: 0 }));
@@ -573,6 +619,8 @@ document.addEventListener('alpine:init', () => {
         const { startAddr, loaded, minAddr, maxAddr } = this.parseMix(buf);
 
         this.exports.vm_set_pc(startAddr);
+        this.exports.vm_clear_dirty();
+        this._memoryShadow.set(this.memView);
         this.syncState();
         this.jumpToPC();
         this.status = `${file.name}: ${loaded} words (${minAddr}–${maxAddr}), PC=${startAddr}`;
@@ -629,6 +677,18 @@ document.addEventListener('alpine:init', () => {
         this.exports.vm_write_word(addr, value);
       }
       this.exports.vm_set_pc(result.startAddr);
+
+      // Save symbol table and build reverse map
+      this.symbols = result.symbols ?? {};
+      this.addrToSymbol = {};
+      for (const [name, addr] of Object.entries(this.symbols)) {
+        if (!this.addrToSymbol[addr]) this.addrToSymbol[addr] = name;
+      }
+
+      // Sync shadow so step-back delta tracking starts clean
+      this.exports.vm_clear_dirty();
+      this._memoryShadow.set(this.memView);
+
       this.syncState();
       this.jumpToPC();
 
@@ -725,17 +785,17 @@ document.addEventListener('alpine:init', () => {
         for (let i = 0; i < n; i++) this.exports.vm_write_word(memAddr + i, words[i] ?? 0);
         return;
       }
-      // Character device: encode input chars as MIX bytes
+      // Character device: encode input chars as MIX bytes via vm_write_word (marks dirty)
       const src    = device === 16 ? this.ioCardInput : this.ioTtyInput;
       const posKey = device === 16 ? 'ioCardPos'     : 'ioTtyPos';
       const pos    = this[posKey];
       for (let i = 0; i < n; i++) {
-        const off = (memAddr + i) * 6;
+        let v = 0;
         for (let b = 0; b < 5; b++) {
           const ch = ((pos + i * 5 + b) < src.length) ? src[pos + i * 5 + b].toUpperCase() : ' ';
-          this.memView[off + b] = MIX_CHARMAP[ch] ?? 0;
+          v = v * 64 + (MIX_CHARMAP[ch] ?? 0);
         }
-        this.memView[off + 5] = 0;  // sign = positive
+        this.exports.vm_write_word(memAddr + i, v);
       }
       this[posKey] += n * 5;
     },
