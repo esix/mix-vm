@@ -347,5 +347,15 @@ function assembleMixal(source) {
     catch (e) { errors.push(`Literal '=${li.expr}=': ${e.message}`); }
   }
 
-  return { words, startAddr, errors, symbols };
+  // Build addr → source-line map for debugger annotation
+  const addrToLine = {};
+  for (const line of lines) {
+    if (line.skip) continue;
+    const op = line.opcode;
+    if (!op || op === 'EQU' || op === 'ORIG' || op === 'END') continue;
+    if (line.loc !== undefined && line.loc >= 0 && line.loc < 4000)
+      addrToLine[line.loc] = line.raw.trim();
+  }
+
+  return { words, startAddr, errors, symbols, addrToLine };
 }

@@ -274,8 +274,10 @@ document.addEventListener('alpine:init', () => {
     status:   'Not loaded',
     running:  false,
     batchSize: 1000,    // steps per rAF frame during Run
-    memPage:     0,
-    gotoAddr:    '',
+    memPage:   0,
+    followPc:  true,    // when true, memory view auto-scrolls with PC
+    viewStart: 0,       // first visible address in follow mode
+    gotoAddr:  '',
     breakpoints: {},   // addr → true
     view:     'debug',   // 'debug' | 'asm'
 
@@ -293,6 +295,11 @@ document.addEventListener('alpine:init', () => {
     // Symbol table (from last assemble)
     symbols:      {},   // name → address
     addrToSymbol: {},   // address → name
+    addrToLine:   {},   // address → original source line
+
+    // Watch panel
+    watches:    [],   // [{addr, name}] — pinned memory addresses
+    watchInput: '',
 
     // ── I/O device state ────────────────────────────────────────────────────
     ioView:    'printer',   // active tab: 'printer' | 'tty' | 'card' | 'storage'
@@ -324,7 +331,7 @@ document.addEventListener('alpine:init', () => {
 
     get visibleWords() {
       if (!this.memView) return [];
-      const start = this.memPage * PAGE_SIZE;
+      const start = this.followPc ? this.viewStart : this.memPage * PAGE_SIZE;
       const end   = Math.min(start + PAGE_SIZE, 4000);
       const out   = [];
       for (let addr = start; addr < end; addr++) {
@@ -338,10 +345,24 @@ document.addEventListener('alpine:init', () => {
           addr, bytes, sign,
           instr: decodeInstruction(bytes, sign),
           value: wordValue(bytes, sign),
-          label: this.addrToSymbol[addr] ?? '',
+          label:  this.addrToSymbol[addr] ?? '',
+          source: this.addrToLine[addr]   ?? '',
         });
       }
       return out;
+    },
+
+    get watchValues() {
+      void this.cycle;   // reactive dependency — re-evaluates after every step
+      if (!this.memView) return [];
+      return this.watches.map(({ addr, name }) => {
+        const off   = addr * 6;
+        const bytes = Array.from(this.memView.subarray(off, off + 5));
+        const sign  = this.memView[off + 5];
+        const v     = wordValue(bytes, sign);
+        const chars = bytes.map(b => MIX_CHARSET[b] ?? ' ').join('');
+        return { addr, name, bytes, sign, value: v, chars };
+      });
     },
 
     // ── Format helpers (called from templates) ───────────────────────────
@@ -473,6 +494,7 @@ document.addEventListener('alpine:init', () => {
       this.history.push(this._buildSnapshot(pre));
       if (this.history.length > this.MAX_HISTORY) this.history.shift();
       this.syncState();
+      this._autoScroll();
     },
 
     stepBack() {
@@ -511,13 +533,54 @@ document.addEventListener('alpine:init', () => {
       }
       this.syncState();
       if (done) {
-        this.running = false;
-        this.status  = this.halted ? 'Halted' : `Break @ ${this.pc}`;
+        this.running  = false;
+        this.followPc = true;
+        this.status   = this.halted ? 'Halted' : `Break @ ${this.pc}`;
         this._memoryShadow.set(this.memView);
         e.vm_clear_dirty();
+        this._autoScroll();
       } else {
         requestAnimationFrame(() => this._runFrame());
       }
+    },
+
+    // Scroll the follow-mode window so PC stays visible.
+    // Triggers only when PC is at the last 2 rows (advance half a page)
+    // or has gone above the window (jump to PC near top).
+    _autoScroll() {
+      if (!this.followPc) return;
+      const start = this.viewStart;
+      const end   = start + PAGE_SIZE;
+      if (this.pc >= start && this.pc < end - 2) return;  // comfortably visible — no change
+      if (this.pc >= end - 2) {
+        // Near bottom or off the bottom: advance half a page so PC lands in the middle
+        this.viewStart = Math.min(4000 - PAGE_SIZE, this.pc - Math.floor(PAGE_SIZE / 2));
+      } else {
+        // Went above the window (e.g. jump/branch backward): show PC near top
+        this.viewStart = Math.max(0, this.pc - 2);
+      }
+    },
+
+    addWatch() {
+      const s = this.watchInput.trim();
+      if (!s) return;
+      let addr;
+      const n = parseInt(s, 10);
+      if (!isNaN(n) && n >= 0 && n < 4000) {
+        addr = n;
+      } else {
+        const sym = s.toUpperCase();
+        addr = this.symbols[sym];
+        if (addr === undefined) return;
+      }
+      if (this.watches.some(w => w.addr === addr)) { this.watchInput = ''; return; }
+      const name = this.addrToSymbol[addr] ?? String(addr);
+      this.watches = [...this.watches, { addr, name }];
+      this.watchInput = '';
+    },
+
+    removeWatch(addr) {
+      this.watches = this.watches.filter(w => w.addr !== addr);
     },
 
     toggleBreakpoint(a) {
@@ -531,8 +594,9 @@ document.addEventListener('alpine:init', () => {
       if (this.running) { this.running = false; }
       this.history     = [];
       this.breakpoints = {};
-      this.symbols     = {};
+      this.symbols      = {};
       this.addrToSymbol = {};
+      this.addrToLine   = {};
       this.exports.vm_reset();
       this.exports.vm_clear_dirty();
       if (this._memoryShadow) this._memoryShadow.fill(0);
@@ -611,6 +675,7 @@ document.addEventListener('alpine:init', () => {
         this.history      = [];
         this.symbols      = {};
         this.addrToSymbol = {};
+        this.addrToLine   = {};
         this.ioCardPos = 0;
         this.ioTtyPos  = 0;
         this.tapes = Array.from({length: 8}, () => ({ blocks: [], pos: 0 }));
@@ -633,13 +698,26 @@ document.addEventListener('alpine:init', () => {
 
     // ── Navigation ──────────────────────────────────────────────────────
 
-    prevPage()   { this.memPage = Math.max(0, this.memPage - 1); },
-    nextPage()   { this.memPage = Math.min(this.totalPages - 1, this.memPage + 1); },
-    jumpToPC()   { this.memPage = Math.floor(this.pc / PAGE_SIZE); },
+    prevPage() {
+      if (this.followPc) this.memPage = Math.max(0, Math.floor(this.viewStart / PAGE_SIZE) - 1);
+      else this.memPage = Math.max(0, this.memPage - 1);
+      this.followPc = false;
+    },
+    nextPage() {
+      if (this.followPc) this.memPage = Math.min(this.totalPages - 1, Math.floor(this.viewStart / PAGE_SIZE) + 1);
+      else this.memPage = Math.min(this.totalPages - 1, this.memPage + 1);
+      this.followPc = false;
+    },
+    jumpToPC() {
+      this.followPc  = true;
+      this.viewStart = Math.max(0, this.pc - 2);  // show PC near top, then auto-scroll will adjust
+      this._autoScroll();
+    },
     jumpToAddr() {
       const addr = parseInt(this.gotoAddr, 10);
       if (!isNaN(addr) && addr >= 0 && addr < 4000) {
-        this.memPage = Math.floor(addr / PAGE_SIZE);
+        this.memPage  = Math.floor(addr / PAGE_SIZE);
+        this.followPc = false;
       }
     },
 
@@ -678,12 +756,13 @@ document.addEventListener('alpine:init', () => {
       }
       this.exports.vm_set_pc(result.startAddr);
 
-      // Save symbol table and build reverse map
+      // Save symbol table, reverse map, and source annotation
       this.symbols = result.symbols ?? {};
       this.addrToSymbol = {};
       for (const [name, addr] of Object.entries(this.symbols)) {
         if (!this.addrToSymbol[addr]) this.addrToSymbol[addr] = name;
       }
+      this.addrToLine = result.addrToLine ?? {};
 
       // Sync shadow so step-back delta tracking starts clean
       this.exports.vm_clear_dirty();

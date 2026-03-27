@@ -129,11 +129,12 @@ body {
 .sidebar {
   background: var(--bg2);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: hidden;
   padding: 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-height: 0;
 }
 
 .panel h2 {
@@ -503,6 +504,101 @@ body {
   line-height: 1.2;
   opacity: 0.8;
 }
+
+.c-src {
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 38ch;
+}
+
+/* ── Watch panel ─────────────────────────────────────────────────────────── */
+
+.panel-watch {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.watch-add {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.watch-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  outline: none;
+  min-width: 0;
+}
+.watch-input:focus { border-color: var(--accent); }
+
+.watch-empty {
+  color: var(--dim);
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.watch-table {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  display: block;
+}
+
+.watch-name {
+  color: var(--text);
+  font-size: 12px;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watch-addr {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.watch-val {
+  font-size: 12px;
+  text-align: right;
+}
+
+.watch-chars {
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.watch-rm {
+  width: 20px;
+  text-align: center;
+}
+
+.btn-rm {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.btn-rm:hover { color: var(--red); }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 

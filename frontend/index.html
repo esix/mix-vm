@@ -81,16 +81,54 @@
             <tr><td>CMP</td> <td class="val mono" x-text="cmpLabel(cmp)"></td></tr>
           </table>
         </section>
+
+        <section class="panel panel-watch">
+          <h2>Watch</h2>
+          <div class="watch-add">
+            <input
+              type="text"
+              x-model="watchInput"
+              @keydown.enter="addWatch()"
+              placeholder="addr or symbol…"
+              class="watch-input"
+              list="sym-list"
+            />
+            <datalist id="sym-list">
+              <template x-for="(addr, name) in symbols" :key="name">
+                <option :value="name"></option>
+              </template>
+            </datalist>
+            <button @click="addWatch()" class="btn btn-small">+</button>
+          </div>
+          <div x-show="watches.length === 0" class="watch-empty">No watches</div>
+          <table class="info-table watch-table" x-show="watches.length > 0">
+            <template x-for="w in watchValues" :key="w.addr">
+              <tr>
+                <td class="watch-name">
+                  <div x-text="w.name"></div>
+                  <div class="watch-addr" x-show="w.name !== String(w.addr)" x-text="String(w.addr).padStart(4,'0')"></div>
+                </td>
+                <td class="val mono watch-val">
+                  <div x-text="w.value"></div>
+                  <div class="watch-chars" x-text="'»' + w.chars"></div>
+                </td>
+                <td class="watch-rm">
+                  <button @click="removeWatch(w.addr)" class="btn-rm" title="Remove">×</button>
+                </td>
+              </tr>
+            </template>
+          </table>
+        </section>
       </aside>
 
       <main class="mem-panel">
         <div class="mem-toolbar">
           <h2>Memory</h2>
           <div class="mem-nav">
-            <button @click="jumpToPC()" class="btn btn-small">&#8594; PC</button>
-            <button @click="prevPage()" :disabled="memPage === 0" class="btn btn-small">&#9650;</button>
-            <span class="page-info" x-text="'Page ' + (memPage + 1) + ' / ' + totalPages"></span>
-            <button @click="nextPage()" :disabled="memPage >= totalPages - 1" class="btn btn-small">&#9660;</button>
+            <button @click="jumpToPC()" class="btn btn-small" :class="followPc ? 'btn-accent' : ''" title="Center view on PC (auto-follow)">&#8594; PC</button>
+            <button @click="prevPage()" class="btn btn-small">&#9650;</button>
+            <span class="page-info" x-text="followPc ? (viewStart + '–' + Math.min(viewStart + 32, 3999)) : 'Page ' + (memPage + 1) + ' / ' + totalPages"></span>
+            <button @click="nextPage()" class="btn btn-small">&#9660;</button>
             <input
               type="number" min="0" max="3999"
               x-model.number="gotoAddr"
@@ -116,7 +154,7 @@
             <tbody>
               <template x-for="w in visibleWords" :key="w.addr">
                 <tr :class="w.addr === pc ? 'current-pc' : (breakpoints[w.addr] ? 'bp-row' : '')"
-                    @click="toggleBreakpoint(w.addr)" style="cursor:pointer">
+                    @click="toggleBreakpoint(w.addr); followPc = false" style="cursor:pointer">
                   <td class="c-addr">
                     <div x-text="(breakpoints[w.addr] ? '● ' : '') + String(w.addr).padStart(4,'0')"></div>
                     <div class="c-label" x-show="w.label" x-text="w.label"></div>
@@ -125,7 +163,10 @@
                   <template x-for="(b, i) in w.bytes" :key="i">
                     <td class="c-byte" x-text="String(b).padStart(2,'0')"></td>
                   </template>
-                  <td class="c-instr" x-text="w.instr"></td>
+                  <td class="c-instr">
+                    <div x-text="w.instr"></div>
+                    <div class="c-src" x-show="w.source" x-text="w.source" :title="w.source"></div>
+                  </td>
                   <td class="c-val"  x-text="w.value"></td>
                 </tr>
               </template>
