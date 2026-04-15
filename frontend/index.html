@@ -17,9 +17,9 @@
     </header>
 
     <div class="toolbar">
-      <button @click="stepBack()" :disabled="!loaded || history.length === 0" class="btn" title="Step backward (undo)">&#8592; Back</button>
-      <button @click="step()"     :disabled="!loaded || running"             class="btn btn-accent" title="Step forward">Step &#8594;</button>
-      <button @click="toggleRun()" :disabled="!loaded" class="btn" :class="running ? 'btn-stop' : 'btn-run'">
+      <button @click="stepBack()" :disabled="!loaded || history.length === 0" class="btn" title="Step backward [F10]">&#8592; Back</button>
+      <button @click="step()"     :disabled="!loaded || running"             class="btn btn-accent" title="Step forward [F8]">Step &#8594;</button>
+      <button @click="toggleRun()" :disabled="!loaded" class="btn" :class="running ? 'btn-stop' : 'btn-run'" title="Run / Stop [F5]">
         <span x-text="running ? '&#9646;&#9646; Stop' : '&#9654; Run'"></span>
       </button>
       <div class="sep"></div>
@@ -60,6 +60,7 @@
               </td>
             </tr>
             <tr><td>Cycle</td>  <td class="val mono" x-text="cycle"></td></tr>
+            <tr><td>Time</td>   <td class="val mono" x-text="timeUnits + ' u'"></td></tr>
             <tr><td>Halted</td> <td class="val mono" :class="halted ? 'bad' : ''" x-text="halted ? 'YES' : 'no'"></td></tr>
             <tr><td>History</td><td class="val mono" x-text="history.length + ' / ' + MAX_HISTORY"></td></tr>
           </table>

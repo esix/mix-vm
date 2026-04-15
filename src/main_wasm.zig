@@ -32,6 +32,8 @@ export fn vm_set_cycle(val: u32)    void { vm.cycle = val; }
 export fn vm_set_halted(val: u32)   void { vm.halted   = val != 0; }
 export fn vm_set_overflow(val: u32) void { vm.overflow = val != 0; }
 export fn vm_set_cmp(val: u32)      void { vm.cmp = @enumFromInt(@min(val, 2)); }
+export fn vm_get_time_units() u32   { return vm.time_units; }
+export fn vm_set_time_units(val: u32) void { vm.time_units = val; }
 
 // ── Registers: read ────────────────────────────────────────────────────────
 

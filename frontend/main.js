@@ -257,15 +257,16 @@ document.addEventListener('alpine:init', () => {
     memView: null,  // live Uint8Array into WASM linear memory
 
     // VM state (mirrors WASM)
-    pc:       0,
-    cycle:    0,
-    halted:   false,
-    overflow: false,
-    cmp:      'E',     // 'L' | 'E' | 'G'
-    regA:     0,       // i32
-    regX:     0,       // i32
-    regI:     [0, 0, 0, 0, 0, 0],  // i32 × 6
-    regJ:     0,       // u32
+    pc:        0,
+    cycle:     0,
+    timeUnits: 0,      // elapsed time in Knuth's u (per TAOCP §1.3.1)
+    halted:    false,
+    overflow:  false,
+    cmp:       'E',    // 'L' | 'E' | 'G'
+    regA:      0,      // i32
+    regX:      0,      // i32
+    regI:      [0, 0, 0, 0, 0, 0],  // i32 × 6
+    regJ:      0,      // u32
 
     // UI state
     loaded:   false,
@@ -376,7 +377,20 @@ document.addEventListener('alpine:init', () => {
 
     // ── WASM loading ─────────────────────────────────────────────────────
 
-    init() { this.load(); },
+    init() {
+      this.load();
+      window.addEventListener('keydown', (e) => {
+        // Don't intercept when typing in a form field
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        switch (e.key) {
+          case 'F8':     e.preventDefault(); this.step(); break;
+          case 'F10':    e.preventDefault(); this.stepBack(); break;
+          case 'F5':     e.preventDefault(); this.toggleRun(); break;
+          case 'Escape': if (this.running) { e.preventDefault(); this.toggleRun(); } break;
+        }
+      });
+    },
 
     async load() {
       this.loading = true;
@@ -414,8 +428,9 @@ document.addEventListener('alpine:init', () => {
 
     syncState() {
       const e = this.exports;
-      this.cycle    = e.vm_get_cycle();
-      this.pc       = e.vm_get_pc();
+      this.cycle     = e.vm_get_cycle();
+      this.timeUnits = e.vm_get_time_units();
+      this.pc        = e.vm_get_pc();
       this.halted   = !!e.vm_get_halted();
       this.overflow = !!e.vm_get_overflow();
       const c = e.vm_get_cmp();
@@ -470,6 +485,7 @@ document.addEventListener('alpine:init', () => {
       e.vm_set_reg_j(snap.regJ);
       e.vm_set_pc(snap.pc);
       e.vm_set_cycle(snap.cycle);
+      e.vm_set_time_units(snap.timeUnits ?? 0);
       e.vm_set_halted(snap.halted ? 1 : 0);
       e.vm_set_overflow(snap.overflow ? 1 : 0);
       e.vm_set_cmp(snap.cmp === 'L' ? 0 : snap.cmp === 'G' ? 2 : 1);
@@ -482,7 +498,7 @@ document.addEventListener('alpine:init', () => {
       if (!this.loaded || this.halted) return;
       // Capture pre-step registers (cheaply, before executing)
       const pre = {
-        pc: this.pc, cycle: this.cycle, halted: this.halted,
+        pc: this.pc, cycle: this.cycle, timeUnits: this.timeUnits, halted: this.halted,
         overflow: this.overflow, cmp: this.cmp,
         regA: this.regA, regX: this.regX, regI: [...this.regI], regJ: this.regJ,
         ioCardPos: this.ioCardPos, ioTtyPos: this.ioTtyPos,

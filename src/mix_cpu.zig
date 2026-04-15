@@ -455,4 +455,23 @@ pub fn step(vm: *Vm) void {
         63 => opCMP(vm, vm.rX,              M, F),
         else => {}, // unknown opcode → NOP
     }
+
+    // Accumulate elapsed time units (Knuth TAOCP §1.3.1, Table 1).
+    // MOVE costs 1+2F; I/O costs 1 (device latency ignored).
+    vm.time_units +%= switch (C) {
+        0       => 1,
+        1, 2    => 2,
+        3       => 10,
+        4       => 12,
+        5       => 10,                          // NUM, CHAR, HLT
+        6       => 2,                           // shifts
+        7       => 1 + 2 * @as(u32, F),        // MOVE: 1+2F
+        8...23  => 2,                           // LD*, LD*N
+        24...33 => 2,                           // ST*
+        34...38 => 1,                           // JBUS, IOC, IN, OUT, JRED
+        39...47 => 1,                           // JMP variants, register jumps
+        48...55 => 1,                           // INC/DEC/ENT/ENN
+        56...63 => 2,                           // CMP*
+        else    => 1,
+    };
 }

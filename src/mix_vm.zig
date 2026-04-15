@@ -43,6 +43,9 @@ pub const Vm = struct {
     cmp:      CompareFlag,    // result of last comparison
     halted:   bool,
 
+    // Elapsed time in Knuth's "time units" (u), per TAOCP §1.3.1.
+    time_units: u32,
+
     // Pending I/O: set by mix_cpu.step(), cleared by host after handling.
     // io_kind: 0=none, 1=OUT, 2=IN, 3=IOC
     io_kind:   u8,
@@ -61,6 +64,7 @@ pub const Vm = struct {
         self.overflow = false;
         self.cmp      = .equal;
         self.halted   = false;
+        self.time_units = 0;
         self.io_kind   = 0;
         self.io_device = 0;
         self.io_addr   = 0;
